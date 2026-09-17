@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "painel-npro",
+      "runtimeExecutable": "vercel",
+      "runtimeArgs": ["dev", "--listen", "4173", "--yes"],
+      "port": 4173
+    }
+  ]
+}

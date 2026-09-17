@@ -14,14 +14,22 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script>
-  /* Dispara o download do snapshot já na leitura do <head>, antes do app.js
-     (que é defer). Uma única requisição — um <link rel=preload as=fetch> faria
-     o navegador baixar o mesmo arquivo duas vezes por diferença de credentials
-     mode. O .catch vazio só evita "unhandled rejection": quem trata o erro de
-     verdade é o boot() do app.js, que aguarda esta mesma promise. */
-  window.__snapshotPromise = fetch('data/snapshot.json').then(function(r){
+  /* Dispara o download dos dados já na leitura do <head>, antes do app.js (que
+     é defer). /api/snapshot devolve a última planilha PUBLICADA no app; se
+     ninguém publicou nada (ou a função não existe, como ao rodar local), cai no
+     snapshot que veio junto com o site. O .catch vazio só evita "unhandled
+     rejection": quem trata o erro de verdade é o boot() do app.js. */
+  window.__snapshotPromise = fetch('/api/snapshot').then(function(r){
     if(!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
+    return r.json().then(function(dados){
+      return {dados: dados, publicadoEm: decodeURIComponent(r.headers.get('X-Painel-Publicado-Em') || '')};
+    });
+  }).catch(function(){
+    /* sem a função (rodando local, por exemplo): cai no snapshot que veio com o site */
+    return fetch('data/snapshot.json').then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json().then(function(dados){ return {dados: dados, publicadoEm: ''}; });
+    });
   });
   window.__snapshotPromise.catch(function(){});
 </script>
@@ -51,7 +59,7 @@
         <label class="upload-label">Enviar Vendas
           <input type="file" id="upload-input-vendas" accept=".xlsx,.xls">
         </label>
-        <button class="upload-clear" id="upload-clear" type="button" title="Voltar ao snapshot original">Restaurar original</button>
+        <button class="upload-clear" id="upload-clear" type="button" title="Volta o painel ao snapshot original (Excel de 26/08/2026)">Restaurar original</button>
       </div>
     </div>
   </div>
@@ -301,7 +309,7 @@
   </section>
 
   <div class="disclosure">
-    <b>Sobre este painel:</b> é um retrato (snapshot) dos números do arquivo Excel "ESTOQUE-VENDAS DO FLEXX NPRO+BEBIDAS ONLINE — DASHBOARD.xlsx" no momento em que foi gerado — os dados não se conectam automaticamente ao banco de dados. Para atualizar, basta reenviar uma exportação nova do Excel.
+    <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
 </div>
 

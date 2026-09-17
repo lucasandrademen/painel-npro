@@ -544,7 +544,15 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 }
 .upload-clear:hover{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--accent-ink);}
 #upload-status{font-size:12px; color:rgba(255,255,255,0.78); max-width:340px;}
-@media(max-width:860px){ .upload-ctrl{display:none;} }
+/* Em tela pequena os botões de envio saem (a importação é trabalho de desktop),
+   mas a linha de status FICA: é ela que diz qual versão dos dados você está
+   vendo — e agora essa versão é a que está publicada para todo mundo. */
+@media(max-width:860px){
+  .upload-ctrl{ margin-left:0; width:100%; text-align:left; align-items:flex-start; }
+  .upload-ctrl .upload-label, .upload-ctrl .upload-clear{ display:none; }
+  .upload-row{ justify-content:flex-start; }
+  #upload-status{ max-width:none; }
+}
 
 /* ============================== TELA DE BOOT ==============================
    O snapshot de dados é baixado de data/snapshot.json depois que o HTML já
@@ -585,3 +593,34 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
   border-radius:var(--radius-sm); background:var(--surface-2);
   color:var(--text-muted); font-size:12px; text-align:center;
 }
+
+/* ============================== SENHA DE PUBLICAÇÃO ==============================
+   Enviar uma planilha publica os dados para todo mundo — essa caixa confirma
+   quem está fazendo isso. Fica no app, não no navegador de quem enviou. */
+.senha-overlay{
+  position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center;
+  background:rgba(2,47,67,.55); padding:20px;
+}
+.senha-card{
+  background:var(--surface); border-radius:var(--radius-lg); border:1px solid var(--border);
+  box-shadow:0 10px 40px rgba(10,42,92,.22); padding:22px 24px; width:100%; max-width:420px;
+}
+.senha-card h3{
+  margin:0 0 8px; font-family:var(--font-display); font-size:15px; color:var(--text);
+}
+.senha-card p{ margin:0 0 10px; font-size:12.5px; color:var(--text-muted); line-height:1.5; }
+.senha-aviso{ color:var(--critical) !important; font-weight:600; }
+.senha-card input{
+  width:100%; box-sizing:border-box; padding:10px 12px; font-size:13px; font-family:var(--font-body);
+  border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-2); color:var(--text);
+}
+.senha-card input:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+.senha-acoes{ display:flex; gap:10px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap; }
+.senha-btn-primario, .senha-btn-secundario{
+  border:0; border-radius:var(--radius-sm); cursor:pointer; padding:9px 16px;
+  font-family:var(--font-body); font-size:12.5px; font-weight:600;
+}
+.senha-btn-primario{ background:var(--accent); color:#fff; }
+.senha-btn-primario:hover{ background:var(--accent-ink); }
+.senha-btn-secundario{ background:var(--surface-2); color:var(--text-muted); }
+.senha-btn-secundario:hover{ background:var(--surface-3); color:var(--text); }

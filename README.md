@@ -1,44 +1,78 @@
 # Painel NPRO + Bebidas — Estoque × Vendas
 
-Painel web da Mblogística (Nestlé Professional) — versão site estático, pronta para a Vercel.
-Sem build, sem framework, sem servidor: o navegador baixa os arquivos e calcula tudo localmente.
+Painel web da Mblogística (Nestlé Professional), na Vercel: página estática + uma função
+(`/api/snapshot`) que guarda os dados **no próprio aplicativo**. Todo o cálculo (DDE,
+ruptura, giro, ABC, cobertura, cross-sell, Mapa da Venda) roda no navegador, a partir das
+linhas de transação — não existe banco de dados nem back-end de negócio.
+
+Produção: https://painel-npro.vercel.app
 
 ## Estrutura
 
 ```
-index.html                 página (markup + <head>; dispara o download do snapshot)
+index.html                 página (markup + <head>; dispara o download dos dados)
 assets/app.css             estilos (tokens da identidade MB)
-assets/app.js              motor de cálculo, filtros, gráficos, impressão A4 e importação
+assets/app.js              motor de cálculo, filtros, gráficos, impressão A4, importação
 assets/xlsx.min.js         SheetJS — carregado sob demanda, só quando alguém envia planilha
-assets/logo-nestle-professional.png
-assets/favicon.svg
-data/snapshot.json         os dados (estoque, vendas, clientes, cadastro de produtos)
+assets/logo-nestle-professional.png · assets/favicon.svg
+data/snapshot.json         snapshot ORIGINAL (o ponto de partida, e o "restaurar original")
+api/snapshot.js            guarda e serve a versão publicada (Vercel Blob)
 vercel.json                cabeçalhos de cache e segurança
 ```
 
-## Como atualizar os dados
+## Como os dados são atualizados
 
-Duas formas, as duas sem mexer em código:
+Pela própria tela, nos botões **Enviar Estoque** / **Enviar Vendas**:
 
-1. **Pela tela** — botões "Enviar Estoque" / "Enviar Vendas" no topo. O arquivo é lido no
-   próprio navegador (nada sobe para servidor nenhum) e fica guardado no `localStorage`
-   daquele navegador. Vale só para quem enviou; "Restaurar original" volta ao publicado.
-2. **Para todo mundo** — troque `data/snapshot.json` e publique de novo. É o snapshot que
-   todos os acessos passam a ver.
+1. a planilha é lida no navegador de quem enviou (nada de servidor de processamento);
+2. aparece o resumo da importação para conferir antes de aplicar;
+3. ao confirmar, o painel pede a **senha de publicação** e grava a nova versão no app —
+   a partir daí **todo mundo** que abrir o link vê esses números, em qualquer máquina.
 
-## Publicar
+Se a publicação não der certo (senha errada, sem rede, ou a pessoa escolher "Só neste
+navegador"), a atualização continua valendo na tela e fica guardada no `localStorage`
+daquele navegador, com aviso de que os outros ainda veem a versão anterior. Assim que
+alguém publica algo mais novo, essa cópia local é descartada sozinha.
+
+Nenhuma publicação apaga a anterior: cada uma arquiva a versão que estava no ar em
+`historico/`. O botão **Desfazer publicação** volta para a última; **Restaurar original**
+devolve o `data/snapshot.json` que veio com o site.
+
+### A função
+
+| rota | o que faz |
+| --- | --- |
+| `GET /api/snapshot` | a versão publicada; se ninguém publicou, redireciona para `data/snapshot.json` |
+| `GET /api/snapshot?historico=1` | versão atual + lista das anteriores |
+| `POST /api/snapshot` | publica (`{snapshot, arquivo, tipo}`, gzip+base64, header `x-painel-senha`) |
+| `POST /api/snapshot` | restaura (`{restaurar: "historico/…json"}`) |
+
+Variáveis de ambiente (Vercel → Settings → Environment Variables):
+
+- `BLOB_READ_WRITE_TOKEN` — criada junto com o Blob store `painel-npro` (privado).
+- `PAINEL_SENHA_PUBLICACAO` — a senha que o painel pede na hora de publicar.
+  Para trocar: `vercel env rm PAINEL_SENHA_PUBLICACAO production` e
+  `vercel env add PAINEL_SENHA_PUBLICACAO production`, depois `vercel deploy --prod`.
+
+## Rodar local
+
+```bash
+vercel dev --listen 4173
+```
+
+`vercel dev` usa as variáveis de Development, ou seja, escreve no **mesmo** Blob store de
+produção — publicar durante um teste troca os dados de todo mundo. Para mexer só na
+interface, `python3 -m http.server 4173` serve a página com o snapshot original (a função
+não existe e o painel cai no arquivo estático sozinho).
+
+## Publicar o código
 
 ```bash
 vercel deploy --prod
 ```
 
-## Notas de arquitetura
+## Nota de acesso
 
-- `data/snapshot.json` é baixado por um `<script>` no `<head>`, antes do `app.js` (que é
-  `defer`) — uma única requisição, sem bloquear o primeiro paint. Enquanto ele não chega,
-  a tela de boot fica visível; se falhar, aparece o motivo e o botão de tentar de novo.
-- Todo o cálculo (DDE, ruptura, giro, ABC, cobertura, cross-sell) roda no navegador a partir
-  das linhas de transação — o painel não tem backend nem banco.
-- O conteúdo é dado interno da operação. Mantenha a proteção de acesso do projeto ligada
-  (Vercel Authentication ou senha) — o `vercel.json` já envia `X-Robots-Tag: noindex`, mas
-  isso só impede indexação, não acesso.
+O conteúdo é dado interno da operação (faturamento, clientes, vendedores) e hoje o link é
+**público** — `X-Robots-Tag: noindex` impede indexação, não acesso. Para fechar:
+Vercel → Settings → Deployment Protection (senha ou Vercel Authentication).

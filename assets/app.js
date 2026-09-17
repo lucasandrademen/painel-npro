@@ -20,9 +20,11 @@ const PRODUTO_MASTER = new Map();
 // o cliente pesquisado nunca comprou (a pedido do usuário, igual à planilha).
 const PRODUTO_MASTER_GRUPOS = [];
 const _produtoMasterGruposSeen = new Set();
+let PRODUTO_MASTER_ROWS = [];   // cadastro cru, para reanexar ao publicar (ver publicarSnapshot)
 function initProdutoMaster(){
   PRODUTO_MASTER.clear(); PRODUTO_MASTER_GRUPOS.length = 0; _produtoMasterGruposSeen.clear();
-  ((DATA.produtoMaster && DATA.produtoMaster.rows) || []).forEach(r => {
+  PRODUTO_MASTER_ROWS = (DATA.produtoMaster && DATA.produtoMaster.rows) || [];
+  PRODUTO_MASTER_ROWS.forEach(r => {
     PRODUTO_MASTER.set(String(r[0]), {material:r[1], grupo:r[2], familia:r[3]});
     if(r[2] && !_produtoMasterGruposSeen.has(r[2])){ _produtoMasterGruposSeen.add(r[2]); PRODUTO_MASTER_GRUPOS.push(r[2]); }
   });
@@ -499,13 +501,22 @@ function rebuildDerived(){
 // a um F5. Fica só no navegador dela; nada é enviado a lugar nenhum.
 // (chamada no bootstrap, no final deste arquivo, depois que data/snapshot.json
 // já foi carregado e PRODUTO_MASTER já foi montado a partir dele.)
-function loadStoredSnapshotIfAny(){
+function loadStoredSnapshotIfAny(publicadoEm){
   try {
     const stored = localStorage.getItem(LS_KEY);
-    if(stored){
-      const parsed = JSON.parse(stored);
-      if(parsed && parsed.sku && parsed.cross) DATA = parsed;
+    if(!stored) return;
+    // Existe cópia local (envio que não foi publicado no app — sem senha, sem rede
+    // ou cancelado). Ela só continua valendo enquanto for mais nova que a versão
+    // publicada; se alguém publicou depois, a do servidor manda e a local é
+    // descartada, senão essa pessoa ficaria presa nos próprios números para sempre.
+    let localISO = null;
+    try { localISO = (JSON.parse(localStorage.getItem(LS_META_KEY) || 'null') || {}).whenISO || null; } catch(e){}
+    if(publicadoEm && (!localISO || publicadoEm > localISO)){
+      localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_META_KEY);
+      return;
     }
+    const parsed = JSON.parse(stored);
+    if(parsed && parsed.sku && parsed.cross) DATA = parsed;
   } catch(e){ /* ignora e segue com o snapshot publicado */ }
 }
 
@@ -2268,35 +2279,177 @@ function setUploadStatus(msg, isError){
   el.style.fontWeight = isError ? '700' : '400';
 }
 
-function refreshUndoLink(){
+
+/* ==================== PUBLICAÇÃO — os dados ficam no próprio app ====================
+   O envio de planilha deixou de ser "só no meu navegador": ele é PUBLICADO em
+   /api/snapshot (Vercel Blob do projeto) e passa a valer para todo mundo, em
+   qualquer máquina. Cada publicação guarda a versão anterior, então dá para
+   voltar atrás. O localStorage continua existindo, mas só como rede de proteção
+   para quando a publicação não dá certo (sem senha, sem rede, ambiente offline).
+   ================================================================================ */
+const API_SNAPSHOT = '/api/snapshot';
+const SS_SENHA = 'npro_senha_publicacao';
+
+function senhaSalva(){ try { return sessionStorage.getItem(SS_SENHA) || null; } catch(e){ return null; } }
+function guardarSenha(v){ try { sessionStorage.setItem(SS_SENHA, v); } catch(e){} }
+function esquecerSenha(){ try { sessionStorage.removeItem(SS_SENHA); } catch(e){} }
+
+// Caixa de senha própria (em vez de prompt(), bloqueado em alguns navegadores).
+function pedirSenha(aviso){
+  return new Promise(resolve => {
+    const fundo = document.createElement('div');
+    fundo.className = 'senha-overlay';
+    fundo.innerHTML = `<div class="senha-card" role="dialog" aria-modal="true" aria-labelledby="senha-titulo">
+      <h3 id="senha-titulo">Senha de publicação</h3>
+      <p>Publicar substitui os dados do painel <b>para todas as pessoas</b> que abrirem o link.</p>
+      ${aviso ? `<p class="senha-aviso">${esc(aviso)}</p>` : ''}
+      <input type="password" id="senha-input" autocomplete="current-password" placeholder="Senha" aria-label="Senha de publicação">
+      <div class="senha-acoes">
+        <button type="button" class="senha-btn-secundario" id="senha-cancelar">Só neste navegador</button>
+        <button type="button" class="senha-btn-primario" id="senha-ok">Publicar para todos</button>
+      </div>
+    </div>`;
+    document.body.appendChild(fundo);
+    const campo = fundo.querySelector('#senha-input');
+    const fechar = valor => { fundo.remove(); document.removeEventListener('keydown', aoTeclar); resolve(valor); };
+    const aoTeclar = ev => { if(ev.key === 'Escape') fechar(null); };
+    document.addEventListener('keydown', aoTeclar);
+    fundo.querySelector('#senha-cancelar').addEventListener('click', () => fechar(null));
+    fundo.querySelector('#senha-ok').addEventListener('click', () => fechar(campo.value.trim() || null));
+    campo.addEventListener('keydown', ev => { if(ev.key === 'Enter') fechar(campo.value.trim() || null); });
+    setTimeout(() => campo.focus(), 30);
+  });
+}
+
+// O JSON vai compactado (gzip) e em base64 — ~800 KB viram ~185 KB, bem dentro do
+// limite de corpo da função e com folga de sobra para a base de vendas crescer.
+// base64 em vez de binário puro porque o corpo pode ser tratado como texto no
+// caminho até a função, o que corromperia os bytes do gzip.
+function bytesParaBase64(bytes){
+  let bruto = '';
+  const passo = 0x8000; // em blocos, para não estourar o limite de argumentos
+  for(let i = 0; i < bytes.length; i += passo){
+    bruto += String.fromCharCode.apply(null, bytes.subarray(i, i + passo));
+  }
+  return btoa(bruto);
+}
+async function corpoCompactado(objeto){
+  const texto = JSON.stringify(objeto);
+  if(typeof CompressionStream === 'undefined') return {corpo: texto, encoding: ''};
+  try {
+    const fluxo = new Blob([texto]).stream().pipeThrough(new CompressionStream('gzip'));
+    const buffer = await new Response(fluxo).arrayBuffer();
+    return {corpo: bytesParaBase64(new Uint8Array(buffer)), encoding: 'gzip+base64'};
+  } catch(e){ return {corpo: texto, encoding: ''}; }
+}
+
+async function chamarPublicacao(payload, senha){
+  const {corpo, encoding} = await corpoCompactado(payload);
+  const res = await fetch(API_SNAPSHOT, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain;charset=utf-8', 'x-painel-senha': senha, 'x-painel-encoding': encoding},
+    body: corpo,
+  });
+  let dados = {};
+  try { dados = await res.json(); } catch(e){}
+  if(!res.ok){
+    const erro = new Error(dados.erro || `HTTP ${res.status}`);
+    erro.status = res.status;
+    throw erro;
+  }
+  return dados;
+}
+
+// Pede a senha (uma vez por sessão), publica e devolve o que aconteceu.
+// Nunca lança: quem chama decide o que fazer com cada desfecho.
+async function publicarNoApp(payload, textoAviso){
+  for(let tentativa = 0; tentativa < 3; tentativa++){
+    let senha = senhaSalva();
+    if(!senha){
+      senha = await pedirSenha(tentativa === 0 ? textoAviso : 'Senha incorreta — tente de novo.');
+      if(!senha) return {cancelado: true};
+    }
+    try {
+      const meta = await chamarPublicacao(payload, senha);
+      guardarSenha(senha);
+      return {ok: true, meta};
+    } catch(err){
+      if(err.status === 401){ esquecerSenha(); continue; }
+      return {erro: err};
+    }
+  }
+  return {erro: new Error('Senha de publicação incorreta.')};
+}
+
+// O cadastro completo de produtos é apagado de DATA logo no boot (ele é fixo e
+// só serve de apoio), então precisa ser reanexado ao publicar — senão a versão
+// publicada chegaria sem ele e o Mapa da Venda ficaria sem os Grupos.
+function snapshotCompleto(novoData){
+  if(novoData.produtoMaster || !PRODUTO_MASTER_ROWS.length) return novoData;
+  return Object.assign({}, novoData, {produtoMaster: {rows: PRODUTO_MASTER_ROWS}});
+}
+
+function guardarSomenteNesteNavegador(novoData, nomeArquivo, quandoISO){
+  const quando = new Date(quandoISO).toLocaleString('pt-BR');
+  try {
+    const anterior = localStorage.getItem(LS_KEY);
+    const anteriorMeta = localStorage.getItem(LS_META_KEY);
+    if(anterior){
+      localStorage.setItem(LS_BACKUP_KEY, anterior);
+      if(anteriorMeta) localStorage.setItem(LS_BACKUP_META_KEY, anteriorMeta);
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify(novoData));
+    localStorage.setItem(LS_META_KEY, JSON.stringify({filename: nomeArquivo, when: quando, whenISO: quandoISO}));
+    return true;
+  } catch(err){ return false; }
+}
+
+// Linha de status do topo + botão de desfazer, sempre a partir do que o servidor
+// diz estar publicado (e não do que este navegador acha que enviou).
+async function atualizarBarraPublicacao(){
+  let info = null;
+  try {
+    const r = await fetch(`${API_SNAPSHOT}?historico=1`, {cache: 'no-store'});
+    if(r.ok) info = await r.json();
+  } catch(e){ /* sem API (ex.: rodando local) — segue com o texto padrão */ }
+
+  const local = (() => { try { return JSON.parse(localStorage.getItem(LS_META_KEY) || 'null'); } catch(e){ return null; } })();
+  const publicado = info && info.atual;
+  if(local && local.filename){
+    setUploadStatus(`Usando planilha só deste navegador: ${local.filename} (${local.when}) — não foi publicada para os outros.`, true);
+  } else if(publicado && publicado.quando){
+    const quando = new Date(publicado.quando).toLocaleString('pt-BR');
+    const oQue = publicado.tipo === 'restauracao' ? 'Versão restaurada' : `Publicado: ${publicado.arquivo}`;
+    setUploadStatus(`${oQue} (${quando}) — vale para todos.`, false);
+  } else {
+    setUploadStatus('Snapshot original, gerado a partir do Excel em 26/08/2026.', false);
+  }
+  montarBotaoDesfazer((info && info.versoes) || []);
+}
+
+function montarBotaoDesfazer(versoes){
   const status = document.getElementById('upload-status');
   if(!status || !status.parentElement) return;
-  let link = document.getElementById('upload-undo');
-  // localStorage pode não estar disponível (navegação privada, ambiente restrito,
-  // artefato publicado, etc.) — isso NUNCA pode derrubar uma atualização que já
-  // foi aplicada em memória com sucesso, então essa leitura é sempre protegida.
-  let hasBackup = false;
-  try { hasBackup = !!localStorage.getItem(LS_BACKUP_KEY); } catch(e){ /* segue sem link de desfazer */ }
-  if(hasBackup && !link){
-    link = document.createElement('button');
-    link.id = 'upload-undo';
-    link.type = 'button';
-    link.className = 'upload-clear';
-    link.textContent = 'Desfazer última atualização';
-    link.addEventListener('click', () => {
-      try {
-        const backup = localStorage.getItem(LS_BACKUP_KEY);
-        const backupMeta = localStorage.getItem(LS_BACKUP_META_KEY);
-        if(backup){ localStorage.setItem(LS_KEY, backup); } else { localStorage.removeItem(LS_KEY); }
-        if(backupMeta){ localStorage.setItem(LS_META_KEY, backupMeta); } else { localStorage.removeItem(LS_META_KEY); }
-        localStorage.removeItem(LS_BACKUP_KEY); localStorage.removeItem(LS_BACKUP_META_KEY);
-      } catch(e){ /* ignore */ }
-      location.reload();
-    });
-    status.parentElement.appendChild(link);
-  } else if(!hasBackup && link){
-    link.remove();
+  let botao = document.getElementById('upload-undo');
+  if(!versoes.length){ if(botao) botao.remove(); return; }
+  if(!botao){
+    botao = document.createElement('button');
+    botao.id = 'upload-undo';
+    botao.type = 'button';
+    botao.className = 'upload-clear';
+    status.parentElement.appendChild(botao);
   }
+  const anterior = versoes[0];
+  botao.textContent = 'Desfazer publicação';
+  botao.title = `Volta o painel, para todo mundo, à versão de ${new Date(anterior.quando).toLocaleString('pt-BR')}`;
+  botao.onclick = async () => {
+    if(!confirm(`Voltar o painel à versão anterior (${new Date(anterior.quando).toLocaleString('pt-BR')})? Isso vale para todas as pessoas.`)) return;
+    setUploadStatus('Restaurando a versão anterior…', false);
+    const r = await publicarNoApp({restaurar: anterior.arquivo}, 'Restaurar a versão anterior para todo mundo:');
+    if(r.ok){ location.reload(); return; }
+    if(r.cancelado){ await atualizarBarraPublicacao(); return; }
+    setUploadStatus(`Não consegui restaurar: ${(r.erro && r.erro.message) || r.erro}`, true);
+  };
 }
 
 // Fábrica genérica: liga um <input type="file"> independente (Estoque OU Vendas)
@@ -2347,27 +2500,32 @@ function wireUploadInput(inputId, parseFn, labelUpper){
             input.value = '';
             return;
           }
-          const when = new Date().toLocaleString('pt-BR');
-          let persisted = false;
-          try {
-            const prevStored = localStorage.getItem(LS_KEY);
-            const prevMetaStored = localStorage.getItem(LS_META_KEY);
-            if(prevStored){
-              localStorage.setItem(LS_BACKUP_KEY, prevStored);
-              if(prevMetaStored) localStorage.setItem(LS_BACKUP_META_KEY, prevMetaStored);
-            }
-            localStorage.setItem(LS_KEY, JSON.stringify(parsed.newData));
-            localStorage.setItem(LS_META_KEY, JSON.stringify({filename:file.name, when}));
-            persisted = true;
-          } catch(err){ /* localStorage indisponível/cheio — segue só em memória, atualização já aplicada acima */ }
-          // A atualização em memória já valeu; o que pode falhar aqui é só guardá-la
-          // no navegador. Antes isso era silencioso e a pessoa só descobria ao dar F5
-          // e ver os números antigos de volta — agora o aviso é explícito.
-          setUploadStatus(persisted
-            ? `${labelUpper} atualizado(a): ${file.name} (${when}).`
-            : `${labelUpper} atualizado(a): ${file.name} (${when}). ATENÇÃO: não foi possível guardar no navegador — ao recarregar a página os dados voltam ao snapshot publicado.`, !persisted);
-          try { refreshUndoLink(); } catch(err){ console.error(err); }
+          // Os dados já estão valendo nesta tela. Agora eles vão para o próprio
+          // app (Vercel Blob), para que todo mundo veja o mesmo — e não só quem
+          // enviou. Se a publicação não rolar (senha, rede, ambiente offline), a
+          // atualização continua valendo aqui e é guardada neste navegador, com
+          // o aviso de que os outros ainda estão vendo a versão anterior.
+          const quandoISO = new Date().toISOString();
           input.value = '';
+          setUploadStatus(`Publicando ${labelUpper} para todo mundo…`, false);
+          publicarNoApp(
+            {snapshot: snapshotCompleto(parsed.newData), arquivo: file.name, tipo: labelUpper.toLowerCase()},
+            `Você está publicando "${file.name}".`
+          ).then(async r => {
+            if(r.ok){
+              try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_META_KEY); } catch(e){}
+              await atualizarBarraPublicacao();
+              setUploadStatus(`${labelUpper} publicado(a) para todos: ${file.name} (${new Date(quandoISO).toLocaleString('pt-BR')}).`, false);
+              return;
+            }
+            const guardou = guardarSomenteNesteNavegador(parsed.newData, file.name, quandoISO);
+            const motivo = r.cancelado
+              ? 'não foi publicado para as outras pessoas'
+              : `não consegui publicar (${(r.erro && r.erro.message) || r.erro})`;
+            setUploadStatus(guardou
+              ? `${labelUpper} aplicado só neste navegador — ${motivo}.`
+              : `${labelUpper} aplicado só nesta tela — ${motivo}, e o navegador também não conseguiu guardar: ao recarregar, volta a versão publicada.`, true);
+          });
         },
         () => { // Cancelar
           setUploadStatus('Importação cancelada — mantendo os dados atuais.', false);
@@ -2385,20 +2543,39 @@ function initUpload(){
   const inputVendas = document.getElementById('upload-input-vendas');
   const clearBtn = document.getElementById('upload-clear');
   if(!inputEstoque && !inputVendas) return;
-  let meta = null;
-  try { meta = JSON.parse(localStorage.getItem(LS_META_KEY) || 'null'); } catch(e){}
-  if(meta && meta.filename) setUploadStatus(`Usando snapshot enviado: ${meta.filename} (${meta.when}).`, false);
-  refreshUndoLink();
+  atualizarBarraPublicacao();
 
   wireUploadInput('upload-input-estoque', applyEstoqueUpload, 'Estoque');
   wireUploadInput('upload-input-vendas', applyVendasUpload, 'Vendas');
 
-  if(clearBtn) clearBtn.addEventListener('click', () => {
+  if(clearBtn) clearBtn.addEventListener('click', async () => {
+    // Enquanto existir uma cópia só deste navegador, o botão limpa ela (é o caso
+    // mais comum e não mexe no que os outros estão vendo). Sem cópia local, ele
+    // faz o que o nome promete: devolve o snapshot original para todo mundo.
+    let temLocal = false;
+    try { temLocal = !!localStorage.getItem(LS_KEY); } catch(e){}
+    if(temLocal){
+      try {
+        localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_META_KEY);
+        localStorage.removeItem(LS_BACKUP_KEY); localStorage.removeItem(LS_BACKUP_META_KEY);
+      } catch(e){}
+      location.reload();
+      return;
+    }
+    if(!confirm('Voltar o painel ao snapshot original (Excel de 26/08/2026)? Isso vale para todas as pessoas.')) return;
+    setUploadStatus('Restaurando o snapshot original…', false);
     try {
-      localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_META_KEY);
-      localStorage.removeItem(LS_BACKUP_KEY); localStorage.removeItem(LS_BACKUP_META_KEY);
-    } catch(e){}
-    location.reload();
+      const res = await fetch(SNAPSHOT_ORIGINAL_URL, {cache:'no-cache'});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const original = await res.json();
+      const r = await publicarNoApp({snapshot: original, arquivo: 'snapshot original', tipo: 'original'},
+        'Restaurar o snapshot original para todo mundo:');
+      if(r.ok){ location.reload(); return; }
+      if(r.cancelado){ await atualizarBarraPublicacao(); return; }
+      setUploadStatus(`Não consegui restaurar o original: ${(r.erro && r.erro.message) || r.erro}`, true);
+    } catch(err){
+      setUploadStatus('Não consegui ler o snapshot original: ' + err.message, true);
+    }
   });
 }
 
@@ -2865,7 +3042,8 @@ function init(){
    cache do navegador/CDN e torna a troca de snapshot uma questão de publicar um
    arquivo — sem reescrever a página. Enquanto ele não chega, a tela de boot fica
    visível; se der erro, a pessoa vê a razão em vez de uma página em branco. */
-const SNAPSHOT_URL = 'data/snapshot.json';
+const SNAPSHOT_URL = '/api/snapshot';
+const SNAPSHOT_ORIGINAL_URL = 'data/snapshot.json';
 
 function bootFail(msg, err){
   if(err) console.error(err);
@@ -2879,16 +3057,29 @@ function bootFail(msg, err){
   </div>`;
 }
 
+let PUBLICADO_EM = null; // quando a versão que está no ar foi publicada (ISO)
+
+async function carregarSnapshotDireto(){
+  try {
+    const r = await fetch(SNAPSHOT_URL);
+    if(!r.ok) throw new Error('api ' + r.status);
+    return {dados: await r.json(), publicadoEm: decodeURIComponent(r.headers.get('X-Painel-Publicado-Em') || '')};
+  } catch(e){
+    const r = await fetch(SNAPSHOT_ORIGINAL_URL);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    return {dados: await r.json(), publicadoEm: ''};
+  }
+}
+
 async function boot(){
   const sub = document.getElementById('boot-sub');
   let snapshot;
   try {
     // O download já foi iniciado pelo <script> no <head> do index.html — aqui só
     // aguardamos. Se por algum motivo a promise não existir, busca na hora.
-    snapshot = await (window.__snapshotPromise || fetch(SNAPSHOT_URL).then(r => {
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    }));
+    const payload = await (window.__snapshotPromise || carregarSnapshotDireto());
+    snapshot = payload.dados;
+    PUBLICADO_EM = payload.publicadoEm || null;
   } catch(err){
     bootFail('Falha ao baixar os dados do painel (data/snapshot.json). Verifique a conexão e tente de novo.', err);
     return;
@@ -2896,8 +3087,8 @@ async function boot(){
   if(sub) sub.textContent = 'Calculando indicadores…';
   try {
     DATA = snapshot;
-    initProdutoMaster();      // cadastro estático de produtos: sempre do snapshot publicado
-    loadStoredSnapshotIfAny(); // planilha enviada antes neste navegador, se houver
+    initProdutoMaster();                 // cadastro de produtos: sempre do snapshot carregado
+    loadStoredSnapshotIfAny(PUBLICADO_EM); // cópia local não publicada, se ainda valer
     rebuildDerived();
     init();
   } catch(err){

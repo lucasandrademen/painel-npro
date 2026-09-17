@@ -1,0 +1,13 @@
+{
+  "name": "painel-npro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Painel Estoque x Vendas NPRO + Bebidas (Mblogistica / Nestle Professional) — site estático + uma função /api/snapshot que guarda as planilhas publicadas no Vercel Blob.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
+  }
+}
