@@ -1,0 +1,587 @@
+/* ============================== TOKENS ============================== */
+/* ==============================================================
+   IDENTIDADE VISUAL MB — Nestlé Professional / Mblogística
+   Fonte oficial dos tokens: padrão visual dos aplicativos da operação
+   (mb-design-tokens.css). Não são cores "escolhidas" — são as cores
+   definidas para todo o ecossistema de apps. Um único tema: os blocos
+   de preferência de sistema (prefers-color-scheme / data-theme) abaixo
+   permanecem na estrutura por compatibilidade, mas apontam para os
+   MESMOS valores — o produto não varia visualmente por tema do SO.
+   ============================================================== */
+:root{
+  --bg:#F4F7FC;          /* fundo geral */
+  --surface:#FFFFFF;     /* cards, tabelas, painéis */
+  --surface-2:#EAF3F7;   /* superfície tônica — filtros, chips, blocos de apoio */
+  --surface-3:#E9EFF7;   /* borda suave usada como superfície (zebra, trilhos) */
+  --border:#DCE6F2;      /* borda padrão */
+  --border-strong:#DCE6F2; /* sem uma 2ª borda oficial — reaproveita a mesma */
+  --text:#0A2A5C;        /* texto principal */
+  --text-muted:#5B7299;  /* texto secundário */
+  --text-faint:rgba(91,114,153,0.65); /* tinta do texto secundário, mais leve */
+  --rail:#022F43;        /* petróleo — navegação e faixas institucionais */
+  --accent:#016690;      /* azul Nestlé — ações e interação principal */
+  --accent-ink:#064E6B;  /* azul profundo — hover de ações, títulos de tabela */
+  --accent-soft:#EAF3F7; /* = superfície tônica, usado em chips/hover */
+  --accent-2:#0A7CA8;    /* acento — hover, detalhes, destaques secundários */
+  --wave:#7FC5E3;        /* onda — indicador ativo sobre fundo escuro, apoio gráfico */
+  --sky:#5FB0CE;         /* azul claro — apoio gráfico (meta/referência) */
+  --good:#1F9D6B;
+  --good-bg:#E6F6EF;
+  --good-ink:#1F9D6B;
+  --warning:#D4A300;
+  --warning-bg:#FBF3D6;
+  --warning-ink:#D4A300;
+  --critical:#D64545;
+  --critical-bg:#FBE7E7;
+  --critical-ink:#D64545;
+  --stockhigh:#0EA5E9;   /* "Estoque Alto" usa o par Informação */
+  --stockhigh-bg:#E0F2FE;
+  --excess:#0A7CA8;      /* "Excesso" — acento, sem inventar uma 5ª cor semântica */
+  --excess-bg:#EAF3F7;
+  --nogyro:#5B7299;      /* "Sem Giro" — neutro azulado */
+  --nogyro-bg:#E9EFF7;
+  --shadow: 0 1px 2px rgba(10,42,92,.05); /* única sombra do sistema — a borda faz o trabalho */
+  --radius: 12px;      /* cards */
+  --radius-sm: 8px;    /* controles */
+  --radius-lg: 20px;   /* painéis maiores (ex.: modal) */
+  --gap: 16px;
+  --font-display:'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-body:'Inter', 'Segoe UI', system-ui, sans-serif;
+  /* Largura do "shell" (header, menu, barra de período e conteúdo das abas).
+     Sobe de 1360px para acompanhar monitores widescreen — em telas até
+     ~2200px de largura o conteúdo ocupa quase 100%; acima disso (4K) o shell
+     centraliza para não esticar demais. Margem lateral responsiva: 20px em
+     notebooks, crescendo suavemente até 32px em desktops grandes. */
+  --shell-max: 2200px;
+  --shell-pad-x: clamp(20px, 1.6vw, 32px);
+}
+
+/* A identidade Mblogística/Nestlé Professional é única — não há um "modo
+   escuro" alternativo definido para os apps da operação. Os blocos abaixo
+   existiam para seguir a preferência de tema do sistema operacional do
+   usuário; para não deixar o dashboard escurecer sozinho num SO em modo
+   escuro (o que gerava exatamente a leitura "app escuro" que motivou esta
+   reformulação), eles agora repetem os mesmos tokens do tema claro. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#F4F7FC;
+    --surface:#FFFFFF;
+    --surface-2:#EAF3F7;
+    --surface-3:#E9EFF7;
+    --border:#DCE6F2;
+    --border-strong:#DCE6F2;
+    --text:#0A2A5C;
+    --text-muted:#5B7299;
+    --text-faint:rgba(91,114,153,0.65);
+    --rail:#022F43;
+    --accent:#016690;
+    --accent-ink:#064E6B;
+    --accent-soft:#EAF3F7;
+    --accent-2:#0A7CA8;
+    --wave:#7FC5E3;
+    --sky:#5FB0CE;
+    --good:#1F9D6B;
+    --good-bg:#E6F6EF;
+    --good-ink:#1F9D6B;
+    --warning:#D4A300;
+    --warning-bg:#FBF3D6;
+    --warning-ink:#D4A300;
+    --critical:#D64545;
+    --critical-bg:#FBE7E7;
+    --critical-ink:#D64545;
+    --stockhigh:#0EA5E9;
+    --stockhigh-bg:#E0F2FE;
+    --excess:#0A7CA8;
+    --excess-bg:#EAF3F7;
+    --nogyro:#5B7299;
+    --nogyro-bg:#E9EFF7;
+    --shadow: 0 1px 2px rgba(10,42,92,.05);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#F4F7FC;
+  --surface:#FFFFFF;
+  --surface-2:#EAF3F7;
+  --surface-3:#E9EFF7;
+  --border:#DCE6F2;
+  --border-strong:#DCE6F2;
+  --text:#0A2A5C;
+  --text-muted:#5B7299;
+  --text-faint:rgba(91,114,153,0.65);
+  --rail:#022F43;
+  --accent:#016690;
+  --accent-ink:#064E6B;
+  --accent-soft:#EAF3F7;
+  --accent-2:#0A7CA8;
+  --wave:#7FC5E3;
+  --sky:#5FB0CE;
+  --good:#1F9D6B;
+  --good-bg:#E6F6EF;
+  --good-ink:#1F9D6B;
+  --warning:#D4A300;
+  --warning-bg:#FBF3D6;
+  --warning-ink:#D4A300;
+  --critical:#D64545;
+  --critical-bg:#FBE7E7;
+  --critical-ink:#D64545;
+  --stockhigh:#0EA5E9;
+  --stockhigh-bg:#E0F2FE;
+  --excess:#0A7CA8;
+  --excess-bg:#EAF3F7;
+  --nogyro:#5B7299;
+  --nogyro-bg:#E9EFF7;
+  --shadow: 0 1px 2px rgba(10,42,92,.05);
+}
+
+/* ============================== BASE ============================== */
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;margin:0;}
+table{font-variant-numeric:tabular-nums;}
+.num{font-variant-numeric:tabular-nums;}
+a{color:var(--accent-2);}
+::selection{background:var(--accent-soft);}
+
+@media (prefers-reduced-motion: no-preference){
+  .tabpanel{animation:fadein .22s ease;}
+  .kpi-card, .panel{transition:transform .15s ease, box-shadow .15s ease;}
+}
+@keyframes fadein{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
+
+/* ============================== SHELL ============================== */
+.shell{max-width:var(--shell-max); margin:0 auto; padding:0 var(--shell-pad-x) 56px;}
+
+.topbar{
+  /* Faixa institucional — cor estrutural sólida (petróleo), sem gradiente
+     decorativo. É a mesma cor usada na navegação logo abaixo. */
+  background:var(--rail);
+  color:#fff;
+  padding:22px var(--shell-pad-x);
+  display:flex;
+  align-items:center;
+  gap:16px;
+}
+.topbar-inner{max-width:var(--shell-max); margin:0 auto; width:100%; display:flex; align-items:center; gap:18px; flex-wrap:wrap;}
+.badge{
+  /* Área limpa/branca para a logo Nestlé Professional se manter legível
+     sobre o petróleo — a logo em si (imagem) não é alterada. */
+  height:44px; padding:7px 12px; border-radius:var(--radius-sm);
+  background:#fff;
+  box-shadow:var(--shadow);
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+.badge img{height:28px; width:auto; display:block;}
+.topbar h1{font-size:20px; font-weight:700; letter-spacing:-0.01em; color:#fff;}
+.topbar .sub{font-size:13px; color:rgba(255,255,255,0.78); margin-top:4px;}
+.topbar-meta{margin-left:auto; text-align:right; font-size:12px; color:rgba(255,255,255,0.78); flex-shrink:0;}
+
+.tabnav{
+  position:sticky; top:0; z-index:30;
+  background:var(--rail);
+  border-bottom:1px solid rgba(255,255,255,0.08);
+  box-shadow:var(--shadow);
+}
+.tabnav-inner{
+  max-width:var(--shell-max); margin:0 auto; padding:4px var(--shell-pad-x);
+  display:flex; flex-wrap:wrap; gap:2px 4px;
+}
+.tabbtn{
+  font-family:var(--font-body); font-weight:600; font-size:12px;
+  color:rgba(255,255,255,0.72); background:none; border:none; cursor:pointer;
+  padding:12px 11px 10px; white-space:nowrap; border-bottom:3px solid transparent;
+  transition:color .12s ease, border-color .12s ease;
+}
+.tabbtn:hover{color:#fff;}
+.tabbtn.active{color:#fff; border-bottom-color:var(--wave);}
+
+.tabpanel{display:none; padding-top:20px;}
+.tabpanel.active{display:block;}
+
+.section-title{font-size:20px; font-weight:600; color:var(--text); margin-bottom:2px;}
+.section-title-row{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:2px;}
+.section-title-row .section-title{margin-bottom:0;}
+.print-a4-btn{
+  display:inline-flex; align-items:center; gap:6px; flex-shrink:0;
+  font-family:var(--font-body); font-size:12px; font-weight:600; color:var(--accent);
+  background:var(--surface); border:1px solid var(--accent); border-radius:var(--radius-sm);
+  padding:6px 13px; cursor:pointer; white-space:nowrap; transition:background .12s ease, color .12s ease;
+}
+.print-a4-btn:hover{background:var(--accent); color:#fff;}
+.print-a4-btn svg{flex-shrink:0;}
+.section-note{font-size:12px; color:var(--text-muted); margin-bottom:14px; max-width:800px;}
+
+/* ============================== FILTER BAR ============================== */
+.filterbar{
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:12px 16px;
+  display:flex; flex-wrap:wrap; gap:12px 18px;
+  align-items:flex-end;
+  margin-bottom:18px;
+}
+.filterbar .flabel{
+  font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:0.7px;
+  color:var(--text-muted); display:block; margin-bottom:4px;
+}
+.filterbar > div{flex:1 1 160px; min-width:140px; max-width:100%;}
+.filterbar select{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:7px 10px; width:100%; min-width:0; max-width:100%; cursor:pointer;
+  transition:border-color .12s ease;
+}
+.filterbar select:hover{border-color:var(--accent-2);}
+.filterbar select:focus, .tabbtn:focus-visible, button:focus-visible{outline:2px solid var(--accent-2); outline-offset:1px;}
+.filter-reset{
+  font-family:var(--font-body); font-size:11.5px; font-weight:600; color:var(--text-muted);
+  background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:7px 12px; cursor:pointer; margin-left:auto; align-self:center;
+  transition:background .12s ease, color .12s ease, border-color .12s ease;
+}
+.filter-reset:hover{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--border);}
+.filter-count{font-size:11.5px; color:var(--text-faint); align-self:center;}
+
+/* ============================== MAPA DA VENDA (busca por cliente/SOLD) ============================== */
+.mapa-lookup{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius);
+  padding:12px 16px; display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px 20px; margin-bottom:14px;
+}
+.mapa-lookup .flabel{
+  font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:0.7px;
+  color:var(--text-muted); display:block; margin-bottom:4px;
+}
+.mapa-lookup input[type="text"], .mapa-lookup input[type="number"]{
+  font-family:var(--font-body); font-size:13px; font-weight:600; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:7px 10px; min-width:0;
+}
+#mapa-input-sold{width:170px;}
+#mapa-input-growth{width:70px; text-align:right;}
+.mapa-field{display:flex; flex-direction:column; min-width:190px;}
+.mapa-field-value{font-size:13.5px; font-weight:600; color:var(--text); padding:7px 0; min-height:1.3em;}
+.mapa-search-btn{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:#fff;
+  background:var(--accent); border:1px solid var(--accent); border-radius:var(--radius-sm);
+  padding:8px 16px; cursor:pointer; transition:background .12s ease;
+}
+.mapa-search-btn:hover{background:var(--accent-ink);}
+.mapa-status{
+  font-size:12.5px; color:var(--critical-ink); background:var(--critical-bg);
+  border-radius:var(--radius-sm); padding:9px 14px; margin-bottom:16px;
+}
+.mapa-empty-hint{font-size:12.5px; color:var(--text-faint); padding:14px 0;}
+
+.filterbar-group{margin-bottom:0;}
+.filterbar-group .filterbar{margin-bottom:0;}
+.filterbar-group .filterbar:first-child{border-radius:var(--radius) var(--radius) 0 0; border-bottom:1px dashed var(--border);}
+.filterbar-group .filterbar:last-child{border-radius:0 0 var(--radius) var(--radius); border-top:none; margin-bottom:0;}
+
+.active-chips{display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 18px;}
+.active-chips:empty{margin:0;}
+.chip{
+  display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600;
+  background:var(--accent-soft); color:var(--accent-ink); border:1px solid var(--border);
+  border-radius:999px; padding:4px 6px 4px 12px;
+}
+.chip-x{
+  font-family:var(--font-body); font-size:13px; line-height:1; color:var(--accent); background:rgba(10,42,92,0.08);
+  border:none; border-radius:50%; width:18px; height:18px; cursor:pointer; padding:0;
+}
+.chip-x:hover{background:rgba(10,42,92,0.16);}
+
+/* ============================== GLOBAL PERIOD BAR ============================== */
+.periodbar{
+  background:var(--accent-soft);
+  border-bottom:1px solid var(--border);
+}
+.periodbar-inner{
+  max-width:var(--shell-max); margin:0 auto; padding:9px var(--shell-pad-x);
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px;
+}
+.periodbar .flabel{
+  font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:0.7px;
+  color:var(--accent-ink); min-width:0; flex:1 1 160px;
+}
+.periodbar-controls{display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; min-width:0;}
+.periodbar input[type="date"]{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:var(--accent-ink);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:6px 9px; min-width:0;
+}
+.periodbar-to{font-size:11.5px; color:var(--text-muted);}
+.period-note{font-size:11px; color:var(--text-muted);}
+@media (max-width:600px){
+  .periodbar-inner{padding:9px 16px;}
+}
+
+/* ============================== KPI CARDS ============================== */
+.kpi-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(168px,1fr)); gap:12px; margin-bottom:18px;}
+.kpi-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:14px 16px; box-shadow:var(--shadow);
+  border-top:3px solid var(--accent);
+}
+.kpi-card.tone-good{border-top-color:var(--good);}
+.kpi-card.tone-warning{border-top-color:var(--warning);}
+.kpi-card.tone-critical{border-top-color:var(--critical);}
+.kpi-label{font-size:12px; font-weight:500; text-transform:uppercase; letter-spacing:0.7px; color:var(--text-muted); margin-bottom:6px;}
+.kpi-value{font-family:var(--font-display); font-size:32px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; line-height:1.15; overflow-wrap:break-word; word-break:break-word; hyphens:auto;}
+.kpi-note{font-size:10.5px; color:var(--text-faint); margin-top:4px;}
+
+/* ============================== PANELS / CHARTS ============================== */
+.grid-2{display:grid; grid-template-columns:1.3fr 1fr; gap:16px; margin-bottom:18px;}
+.grid-2b{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px;}
+@media (max-width:860px){.grid-2, .grid-2b{grid-template-columns:1fr;}}
+/* Grid tracks default to a min-width equal to their content's max-content size,
+   which lets a wide table/heatmap push a whole column past the viewport even
+   though .table-wrap already scrolls internally. min-width:0 lets the track
+   (and the panel inside it) shrink to the column's actual width, so the
+   internal overflow-x:auto on tables/heatmaps is what handles the overflow —
+   never the page itself. */
+.panel{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; box-shadow:var(--shadow); min-width:0;}
+.grid-2 > *, .grid-2b > *, .kpi-row > *{min-width:0;}
+.panel h3{font-size:13px; font-weight:700; color:var(--text); margin-bottom:2px;}
+.panel .panel-sub{font-size:11px; color:var(--text-muted); margin-bottom:12px;}
+
+.hbar-row{display:flex; align-items:center; gap:10px; padding:5px 0;}
+.hbar-label{width:42%; font-size:11.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.hbar-track{flex:1; background:var(--surface-3); border-radius:4px; height:16px; position:relative; overflow:hidden;}
+.hbar-fill{height:100%; border-radius:4px; background:var(--accent); min-width:2px;}
+.hbar-value{width:88px; text-align:right; font-size:11.5px; font-weight:600; color:var(--text); flex-shrink:0;}
+
+.legend{display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-size:11.5px; color:var(--text-muted);}
+.legend-dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px;}
+.legend-item{display:flex; align-items:center;}
+
+.tooltip{
+  position:fixed; pointer-events:none; z-index:100;
+  background:var(--accent-ink); color:#fff; font-size:11.5px; font-family:var(--font-body);
+  padding:7px 10px; border-radius:6px; box-shadow:0 4px 14px rgba(10,42,92,0.25);
+  max-width:240px; opacity:0; transition:opacity .1s ease; line-height:1.4;
+}
+.tooltip.show{opacity:1;}
+.tooltip b{display:block; margin-bottom:2px;}
+
+/* ============================== STATUS PILLS ============================== */
+/* Pill background/ink colors are applied inline per-value by the pillHtml() JS helper
+   (status, priority, and Sim/Não semantics are data-driven), so only the shared shape lives here. */
+.pill{display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:700; white-space:nowrap;}
+.pill::before{content:''; width:6px; height:6px; border-radius:50%; background:currentColor;}
+
+/* ============================== TABLE ============================== */
+.table-toolbar{display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+.search-box{
+  font-family:var(--font-body); font-size:12.5px; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:7px 11px; min-width:220px;
+}
+.table-count{font-size:11.5px; color:var(--text-faint); margin-left:auto;}
+.table-wrap{overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius);}
+table.datatable{width:100%; border-collapse:collapse; font-size:12px; background:var(--surface);}
+table.datatable thead th{
+  position:sticky; top:0; background:var(--surface-2); color:var(--accent-ink);
+  text-align:left; padding:9px 11px; font-size:11px; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.03em; white-space:nowrap; cursor:pointer;
+  user-select:none; border-bottom:1px solid var(--border);
+}
+table.datatable thead th:hover{background:var(--border);}
+table.datatable thead th .arrow{opacity:0.6; font-size:9px; margin-left:3px;}
+table.datatable tbody td{padding:8px 11px; border-bottom:1px solid var(--border); color:var(--text); white-space:nowrap;}
+table.datatable tbody tr:hover{background:var(--accent-soft);}
+table.datatable tbody tr:nth-child(even){background:var(--bg);}
+.table-pager{display:flex; align-items:center; gap:8px; margin-top:10px; font-size:11.5px; color:var(--text-muted);}
+.table-pager button{
+  font-family:var(--font-body); font-size:11.5px; font-weight:600; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm);
+  padding:5px 10px; cursor:pointer;
+}
+.table-pager button:disabled{opacity:0.4; cursor:not-allowed;}
+
+.heatgrid-wrap{overflow-x:auto;}
+.heatgrid{display:grid; gap:2px; font-size:11px; min-width:460px;}
+.heatcell{padding:8px 6px; text-align:center; border-radius:4px; font-weight:700; color:#fff;}
+.heat-rowlabel{display:flex; align-items:center; font-weight:600; color:var(--text); padding-right:8px; font-size:11.5px;}
+.heat-collabel{text-align:center; font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em; padding-bottom:4px;}
+
+.footnote{font-size:11px; color:var(--text-faint); margin-top:10px; line-height:1.5;}
+.disclosure{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius);
+  padding:14px 16px; font-size:12px; color:var(--text-muted); margin-top:28px; line-height:1.6;
+}
+.disclosure b{color:var(--text);}
+
+@media (max-width:768px){
+  .kpi-row{grid-template-columns:repeat(2,1fr);}
+  .kpi-value{font-size:22px;}
+  .topbar-meta{display:none;}
+}
+/* ============================== A4 PRINT SYSTEM ============================== */
+/* Utilitários genéricos (Etapa 12). O isolamento real da impressão usa a técnica
+   de visibility abaixo (mais robusta contra qualquer elemento novo que apareça no
+   app), mas as classes .no-print/.print-only ficam disponíveis como padrão. */
+.no-print{}
+.print-only{display:none;}
+@media print{
+  .no-print{display:none !important;}
+  .print-only{display:block !important;}
+}
+
+.print-overlay{
+  position:fixed; inset:0; z-index:600; background:rgba(2,47,67,0.55);
+  display:none; flex-direction:column; align-items:stretch;
+}
+.print-overlay.open{display:flex;}
+.print-overlay-bar{
+  background:var(--rail); color:#fff; display:flex; align-items:center; justify-content:space-between;
+  gap:14px; padding:14px 22px; flex-wrap:wrap; flex-shrink:0;
+}
+.print-overlay-title{font-size:15px; font-weight:700;}
+.print-overlay-actions{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.print-overlay-actions label{display:flex; align-items:center; gap:6px; font-size:12px; color:rgba(255,255,255,0.82);}
+.print-orient-select{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:var(--text);
+  background:#fff; border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:6px 10px; cursor:pointer;
+}
+.print-orient-tag{
+  font-size:11.5px; font-weight:600; color:#fff; background:rgba(255,255,255,0.16);
+  border-radius:999px; padding:4px 12px; letter-spacing:0.03em; white-space:nowrap;
+}
+.print-btn-secondary{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:#fff;
+  background:transparent; border:1px solid rgba(255,255,255,0.5); border-radius:var(--radius-sm);
+  padding:7px 14px; cursor:pointer; transition:background .12s ease;
+}
+.print-btn-secondary:hover{background:rgba(255,255,255,0.14);}
+.print-btn-primary{
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:#fff;
+  background:var(--accent); border:none; border-radius:var(--radius-sm);
+  padding:7px 16px; cursor:pointer; transition:background .12s ease;
+}
+.print-btn-primary:hover{background:var(--accent-ink);}
+.print-overlay-scroll{flex:1; overflow:auto; padding:30px 16px 70px; display:flex; justify-content:center;}
+.a4-page{
+  background:#fff; color:#0A2A5C; width:210mm; min-height:297mm; box-sizing:border-box;
+  padding:14mm; box-shadow:0 10px 34px rgba(2,47,67,0.35); font-family:var(--font-body);
+  flex-shrink:0;
+}
+.a4-page.landscape{width:297mm; min-height:210mm;}
+
+.print-header{display:flex; align-items:center; gap:16px; padding-bottom:12px; border-bottom:2px solid var(--rail); margin-bottom:14px;}
+.print-header .badge{box-shadow:none;}
+.print-report-title{font-size:17px; font-weight:700; color:var(--rail);}
+.print-report-subtitle{font-size:11px; color:var(--text-muted); margin-top:2px;}
+.print-meta-row{display:flex; gap:28px; flex-wrap:wrap; font-size:10.5px; color:var(--text); margin-bottom:8px;}
+.print-meta-label{color:var(--text-muted); font-weight:600; margin-right:4px;}
+.print-filters-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;}
+.print-filter-chip{font-size:10px; font-weight:600; background:var(--accent-soft); color:var(--accent-ink); border:1px solid var(--border); border-radius:999px; padding:3px 10px;}
+.print-filter-chip--all{background:var(--surface-2); color:var(--text-muted);}
+.print-kpi-grid{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 16px;}
+.print-kpi-cell{flex:1 1 140px; min-width:120px; border:1px solid var(--border); border-radius:6px; padding:8px 10px; background:var(--surface-2);}
+.print-kpi-label{font-size:8px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:3px;}
+.print-kpi-value{font-size:16px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; overflow-wrap:break-word;}
+.print-kpi-note{font-size:8px; color:var(--text-faint); margin-top:2px;}
+.print-chart-block, .print-table-block{margin-bottom:18px;}
+.print-chart-block h4, .print-table-block h4{font-size:12px; font-weight:700; color:var(--text); margin:0 0 6px; break-after:avoid; page-break-after:avoid;}
+.print-table-wrap{overflow:visible;}
+.print-table{width:100%; border-collapse:collapse; font-size:9.5px;}
+.print-table thead{display:table-header-group;}
+.print-table th{background:var(--surface-2); color:var(--accent-ink); text-align:left; padding:5px 7px; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.02em; border-bottom:1px solid var(--border); white-space:nowrap;}
+.print-table td{padding:4px 7px; border-bottom:1px solid var(--border); color:var(--text);}
+.print-table tbody tr{break-inside:avoid; page-break-inside:avoid;}
+.print-table tbody tr:nth-child(even){background:var(--bg);}
+.print-footer{margin-top:20px; padding-top:8px; border-top:1px solid var(--border); font-size:9px; color:var(--text-faint); display:flex; justify-content:space-between; gap:12px;}
+
+@media print{
+  html, body{background:#fff !important;}
+  /* Esconder com display:none (não visibility:hidden) é o que importa aqui:
+     visibility:hidden preserva a altura em tela, e um .shell inteiro invisível
+     mas ainda ocupando ~1400px de layout embaixo da prévia gerava uma página
+     extra em branco na paginação real do Chromium. display:none remove a
+     caixa por completo, então só o conteúdo do relatório é paginado. */
+  .topbar, .tabnav, .periodbar, .shell, #tooltip{display:none !important;}
+  #print-preview-overlay{
+    position:static !important; inset:auto !important; background:#fff !important;
+    display:block !important;
+  }
+  .print-overlay-bar{display:none !important;}
+  .print-overlay-scroll{display:block !important; padding:0 !important; overflow:visible !important;}
+  .a4-page{box-shadow:none !important; margin:0 !important; width:auto !important; min-height:0 !important;}
+  .print-chart-block{break-inside:avoid; page-break-inside:avoid;}
+  /* Sem isso, cores de fundo (pills de status, tons dos cards de KPI, tinta do
+     cabeçalho da tabela, faixas do gráfico de distribuição) só imprimem se a
+     pessoa marcar manualmente "Gráficos de segundo plano" nas opções avançadas
+     do diálogo de impressão do navegador — a maioria não marca. Isso força a
+     impressão correta das cores da identidade visual em qualquer configuração. */
+  .a4-page, .a4-page *{
+    -webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;
+  }
+}
+.upload-ctrl{margin-left:auto; text-align:right; flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:6px;}
+.upload-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;}
+.upload-label{
+  /* Ação primária — mesmo tratamento de qualquer botão principal do sistema. */
+  font-family:var(--font-body); font-size:12.5px; font-weight:600; color:#fff;
+  background:var(--accent); border-radius:var(--radius-sm); padding:9px 16px; cursor:pointer;
+  box-shadow:var(--shadow); white-space:nowrap; transition:background .12s ease;
+}
+.upload-label:hover{background:var(--accent-ink);}
+.upload-label input[type="file"]{display:none;}
+.upload-clear{
+  /* Ação secundária — sobre o petróleo, superfície branca com contorno azul Nestlé. */
+  font-family:var(--font-body); font-size:12px; font-weight:600; color:var(--accent);
+  background:#fff; border:1px solid var(--accent); border-radius:var(--radius-sm);
+  padding:8px 14px; cursor:pointer; transition:background .12s ease, color .12s ease, border-color .12s ease;
+}
+.upload-clear:hover{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--accent-ink);}
+#upload-status{font-size:12px; color:rgba(255,255,255,0.78); max-width:340px;}
+@media(max-width:860px){ .upload-ctrl{display:none;} }
+
+/* ============================== TELA DE BOOT ==============================
+   O snapshot de dados é baixado de data/snapshot.json depois que o HTML já
+   apareceu. Sem esta tela, a pessoa via por um instante um painel vazio (abas
+   sem número) — e, se o download falhasse, uma página muda. */
+.boot-screen{
+  position:fixed; inset:0; z-index:9999;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--bg); padding:24px;
+}
+.boot-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  box-shadow:var(--shadow); padding:26px 30px; text-align:center; max-width:460px;
+}
+.boot-spinner{
+  width:26px; height:26px; margin:0 auto 14px; border-radius:50%;
+  border:3px solid var(--surface-3); border-top-color:var(--accent);
+  animation:boot-spin .8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce){ .boot-spinner{ animation-duration:2.4s; } }
+@keyframes boot-spin{ to{ transform:rotate(360deg); } }
+.boot-title{ font-family:var(--font-display); font-size:15px; font-weight:700; color:var(--text); }
+.boot-sub{ font-size:12.5px; color:var(--text-muted); margin-top:6px; line-height:1.5; }
+.boot-error .boot-card{ border-color:var(--critical); }
+.boot-error .boot-title{ color:var(--critical); }
+.boot-retry{
+  margin-top:16px; border:0; border-radius:var(--radius-sm); cursor:pointer;
+  background:var(--accent); color:#fff; font-family:var(--font-body);
+  font-size:12.5px; font-weight:600; padding:9px 18px;
+}
+.boot-retry:hover{ background:var(--accent-ink); }
+@media print{ .boot-screen{ display:none !important; } }
+
+/* Aviso dentro da prévia de impressão quando a aba não tem o que imprimir ainda
+   (ex.: Mapa da Venda sem nenhum cliente pesquisado). */
+.print-empty-note{
+  margin-top:18px; padding:14px 16px; border:1px dashed var(--border);
+  border-radius:var(--radius-sm); background:var(--surface-2);
+  color:var(--text-muted); font-size:12px; text-align:center;
+}

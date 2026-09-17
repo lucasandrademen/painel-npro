@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#022F43">
+<meta name="description" content="Painel Estoque x Vendas NPRO + Bebidas - Mblogistica / Nestle Professional. DDE, risco de ruptura, giro, cross-sell, cobertura e mapa da venda.">
+<meta name="robots" content="noindex, nofollow">
+<title>Painel NPRO + Bebidas · Mblogística</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/logo-nestle-professional.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+  /* Dispara o download do snapshot já na leitura do <head>, antes do app.js
+     (que é defer). Uma única requisição — um <link rel=preload as=fetch> faria
+     o navegador baixar o mesmo arquivo duas vezes por diferença de credentials
+     mode. O .catch vazio só evita "unhandled rejection": quem trata o erro de
+     verdade é o boot() do app.js, que aguarda esta mesma promise. */
+  window.__snapshotPromise = fetch('data/snapshot.json').then(function(r){
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  });
+  window.__snapshotPromise.catch(function(){});
+</script>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<div class="boot-screen" id="boot-screen">
+  <div class="boot-card">
+    <div class="boot-spinner" aria-hidden="true"></div>
+    <div class="boot-title">Carregando o painel…</div>
+    <div class="boot-sub" id="boot-sub">Lendo o snapshot de Estoque × Vendas.</div>
+  </div>
+</div>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="badge"><img src="assets/logo-nestle-professional.png" alt="Nestlé Professional" width="400" height="175" decoding="async"></div>
+    <div>
+      <h1>Estoque × Vendas — NPRO + Bebidas</h1>
+      <div class="sub">Painel web · espelha o dashboard Excel entregue · Mblogística</div>
+    </div>
+    <div class="upload-ctrl">
+      <div class="upload-row">
+        <span id="upload-status">Snapshot gerado a partir do Excel em 26/08/2026.</span>
+        <label class="upload-label">Enviar Estoque
+          <input type="file" id="upload-input-estoque" accept=".xls,.xlsx,.txt">
+        </label>
+        <label class="upload-label">Enviar Vendas
+          <input type="file" id="upload-input-vendas" accept=".xlsx,.xls">
+        </label>
+        <button class="upload-clear" id="upload-clear" type="button" title="Voltar ao snapshot original">Restaurar original</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tabnav">
+  <div class="tabnav-inner" id="tabnav"></div>
+</div>
+
+<div class="periodbar">
+  <div class="periodbar-inner">
+    <span class="flabel">Período analisado (afeta todos os KPIs, gráficos e tabelas)</span>
+    <div class="periodbar-controls">
+      <input type="date" id="period-start" aria-label="Início do período">
+      <span class="periodbar-to">até</span>
+      <input type="date" id="period-end" aria-label="Fim do período">
+      <button class="filter-reset" id="period-reset" type="button">Período padrão</button>
+      <span class="period-note" id="period-note"></span>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section class="tabpanel active" data-tab="dashboard">
+    <div class="section-title">Dashboard</div>
+    <div class="section-note">Visão geral executiva — cartões, tabela comparativa e ranking reagem aos filtros abaixo. Vendedor/Razão Social/Sold afetam Faturamento, Unidades Vendidas e os cartões de Clientes; Estoque e SKUs em Ruptura/Crítico usam sempre a base completa de produto.</div>
+    <div class="filterbar-group">
+      <div class="filterbar" data-fbar="prod"></div>
+      <div class="filterbar" data-fbar="vendcli"></div>
+    </div>
+    <div class="active-chips" id="chips-dashboard"></div>
+    <div class="kpi-row" id="kpi-dashboard"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Top 10 SKUs por Faturamento</h3>
+        <div class="panel-sub">Considera os filtros de produto acima.</div>
+        <div id="chart-dashboard-top10"></div>
+      </div>
+      <div class="panel">
+        <h3>Participação NPRO × Bebidas</h3>
+        <div class="panel-sub">Faturamento no período, por origem.</div>
+        <div id="chart-dashboard-donut"></div>
+      </div>
+    </div>
+    <div class="grid-2b">
+      <div class="panel">
+        <h3>Comparativo NPRO × Bebidas</h3>
+        <div id="table-dashboard-comparativo"></div>
+      </div>
+      <div class="panel">
+        <h3>Alertas automáticos</h3>
+        <div class="panel-sub">Reage aos filtros de Produto/Vendedor/Razão Social/SOLD desta aba.</div>
+        <div id="alerts-dashboard"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="sku">
+    <div class="section-title">Estoque × Venda por SKU</div>
+    <div class="section-note">NPRO + Bebidas — vendas realizadas no período. Cada card mostra o SKU líder daquele indicador. O filtro de Vendedor afeta apenas Unid. Vendidas, Cx Vendidas e Faturamento — Estoque, DDE, Giro e Status usam a base completa de vendas.</div>
+    <div class="filterbar" data-fbar="prodvend"></div>
+    <div class="active-chips" id="chips-sku"></div>
+    <div class="kpi-row" id="kpi-sku"></div>
+    <div class="panel">
+      <h3>Todos os SKUs</h3>
+      <div id="table-sku"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="dde">
+    <div class="section-title">Dias de Estoque — DDE</div>
+    <div class="section-note">DDE = Estoque Atual ÷ Média Diária de Vendas (vendas realizadas no período).</div>
+    <div class="filterbar" data-fbar="prod"></div>
+    <div class="active-chips" id="chips-dde"></div>
+    <div class="kpi-row" id="kpi-dde"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Distribuição de SKUs por Faixa de DDE</h3>
+        <div class="panel-sub">Considera o filtro de produto acima.</div>
+        <div id="chart-dde-dist"></div>
+      </div>
+      <div class="panel">
+        <h3>Como ler as faixas</h3>
+        <div class="panel-sub">Da faixa mais urgente à menos urgente.</div>
+        <div id="dde-legend-explain"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Detalhe por SKU</h3>
+      <div id="table-dde"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="risco">
+    <div class="section-title">Risco de Ruptura</div>
+    <div class="section-note">Mapa de risco por SKU: Ruptura, Crítico, Atenção e Saudável. O filtro de Vendedor afeta apenas a coluna Faturamento — Estoque/DDE/Categoria de Risco usam a base completa de vendas.</div>
+    <div class="filterbar" data-fbar="prodvend"></div>
+    <div class="active-chips" id="chips-risco"></div>
+    <div class="kpi-row" id="kpi-risco"></div>
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="footnote" id="risco-methodology"></div>
+    </div>
+    <div class="panel">
+      <h3>SKUs por categoria de risco</h3>
+      <div id="table-risco"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="parado">
+    <div class="section-title">Estoque Parado — Sem Giro</div>
+    <div class="section-note">SKUs com estoque atual e nenhuma venda realizada no período.</div>
+    <div class="filterbar" data-fbar="prod"></div>
+    <div class="active-chips" id="chips-parado"></div>
+    <div class="kpi-row" id="kpi-parado"></div>
+    <div class="panel">
+      <h3>SKUs sem giro</h3>
+      <div id="table-parado"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="giro">
+    <div class="section-title">Índice Venda / Estoque</div>
+    <div class="section-note">Antes chamado "Ranking de Giro". Índice = Unidades Vendidas (realizadas no período) ÷ Estoque Atual — não há estoque médio disponível na base, então o indicador usa o estoque atual (mesma regra do Excel). Classificação ABC por Pareto de faturamento (calculada sobre a base completa, não muda com o filtro de Vendedor). Ao selecionar um Vendedor, Unid. Vendidas, Faturamento, Participação nas Vendas e o próprio Índice passam a refletir as vendas daquele vendedor — o Estoque continua sendo o total da empresa (não é dividido por vendedor).</div>
+    <div class="filterbar" data-fbar="prodvend"></div>
+    <div class="active-chips" id="chips-giro"></div>
+    <div class="grid-2b">
+      <div class="panel">
+        <h3>Top 10 — Maior giro</h3>
+        <div id="chart-giro-top10"></div>
+      </div>
+      <div class="panel">
+        <h3>Bottom 10 — Menor giro (com venda no período)</h3>
+        <div id="chart-giro-bottom10"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Ranking completo</h3>
+      <div id="table-giro"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="cross">
+    <div class="section-title">Cross-sell NPRO × Bebidas</div>
+    <div class="section-note">Oportunidades de venda cruzada entre as carteiras NPRO e Bebidas, por cliente (Razão Social), com visão por Vendedor.</div>
+    <div class="filterbar" data-fbar="cli"></div>
+    <div class="active-chips" id="chips-cross"></div>
+    <div class="kpi-row" id="kpi-cross"></div>
+    <div class="panel">
+      <h3>Clientes</h3>
+      <div id="table-cross"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="cobertura">
+    <div class="section-title">Cobertura e Penetração por Categoria</div>
+    <div class="section-note">Dois conceitos, com denominadores diferentes: <b>Penetração</b> = compradores da categoria ÷ clientes ativos no período (só quem comprou algo). <b>Cobertura</b> = compradores da categoria ÷ universo total da carteira (cadastro completo de clientes por vendedor, tenham comprado ou não). Para metas de cobertura/comissão, confirme se este universo (cadastro em "_Base_Clientes") é o mesmo denominador oficial usado pela empresa.</div>
+    <div class="filterbar" data-fbar="cli2"></div>
+    <div class="active-chips" id="chips-cobertura"></div>
+    <div class="kpi-row" id="kpi-cobertura"></div>
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>Penetração por Vendedor × Categoria</h3>
+      <div class="panel-sub">% dos clientes ATIVOS daquele vendedor (dentro do recorte atual) que compram NPRO/Bebidas/Ambas. Reage aos filtros de Vendedor/Razão Social/Sold acima e ao período selecionado no topo da página.</div>
+      <div id="heat-cobertura"></div>
+    </div>
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>Cobertura da Carteira por Vendedor</h3>
+      <div class="panel-sub">% do universo TOTAL de clientes cadastrados para cada vendedor (compradores ou não) que compram NPRO/Bebidas/Ambas no período selecionado.</div>
+      <div id="table-cobertura-vendedor"></div>
+    </div>
+    <div class="grid-2b">
+      <div class="panel">
+        <h3>Penetração por Grupo</h3>
+        <div id="table-cobertura-grupo"></div>
+      </div>
+      <div class="panel">
+        <h3>Penetração por Família</h3>
+        <div id="table-cobertura-familia"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="painel">
+    <div class="section-title">Painel Executivo</div>
+    <div class="section-note">Resumo geral — Vendas, Estoque, Ruptura, Excesso e Clientes. O filtro de Vendedor afeta Faturamento/Unid. Vendidas/Clientes Ativos/Vendas por Categoria, o Faturamento no Top 5 de Alertas e a lista de Oportunidades (só do vendedor selecionado) — Estoque, Ruptura e Excesso, incluindo quais SKUs entram no Top 5 de Alertas, usam sempre a base completa da empresa (estoque não tem "dono" por vendedor).</div>
+    <div class="filterbar" data-fbar="painelvend"></div>
+    <div class="active-chips" id="chips-painel"></div>
+    <div class="kpi-row" id="kpi-painel"></div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>Resumo por Categoria</h3>
+        <div id="table-painel-categoria"></div>
+      </div>
+      <div class="panel">
+        <h3>Faturamento por origem</h3>
+        <div id="chart-painel-donut"></div>
+      </div>
+    </div>
+    <div class="grid-2b">
+      <div class="panel">
+        <h3>Principais Alertas — Top 5 SKUs em Ruptura/Crítico</h3>
+        <div id="table-painel-alertas"></div>
+        <div class="footnote" id="painel-alertas-note"></div>
+      </div>
+      <div class="panel">
+        <h3>Principais Oportunidades — Top 5 Clientes</h3>
+        <div id="table-painel-oportunidades"></div>
+        <div class="footnote" id="painel-oportunidades-note"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="mapa">
+    <div class="section-title">Mapa da Venda NPRO</div>
+    <div class="section-note">Consulta por cliente (código SOLD): venda acumulada no ano, comparativo com o ano anterior, média móvel e meta do mês, no total e por Grupo. Usa o histórico completo de vendas carregado (todas as datas), não o "Período analisado" no topo da página — para funcionar bem, a planilha de Vendas enviada precisa conter o histórico desde 01/01 do ano anterior até hoje.</div>
+    <div class="mapa-lookup">
+      <div>
+        <span class="flabel">Código (SOLD)</span>
+        <input type="text" id="mapa-input-sold" inputmode="numeric" placeholder="Ex.: 4344203" list="mapa-sold-list">
+        <datalist id="mapa-sold-list"></datalist>
+      </div>
+      <button type="button" class="mapa-search-btn" id="mapa-search-btn">Buscar</button>
+      <div class="mapa-field">
+        <span class="flabel">Razão Social</span>
+        <span class="mapa-field-value" id="mapa-razao-value">—</span>
+      </div>
+      <div class="mapa-field">
+        <span class="flabel">Setor (Vendedor)</span>
+        <span class="mapa-field-value" id="mapa-setor-value">—</span>
+      </div>
+      <div>
+        <span class="flabel">Meta de crescimento (%)</span>
+        <input type="number" id="mapa-input-growth" step="0.1">
+      </div>
+    </div>
+    <div class="mapa-status" id="mapa-status" style="display:none;"></div>
+    <div id="mapa-empty-hint" class="mapa-empty-hint">Digite o código SOLD do cliente acima e clique em Buscar.</div>
+    <div class="panel" id="mapa-total-wrap" style="display:none; margin-bottom:18px;">
+      <h3>Visão Total</h3>
+      <div id="table-mapa-total"></div>
+    </div>
+    <div class="panel" id="mapa-grupo-wrap" style="display:none;">
+      <h3>Visão por Grupo</h3>
+      <div class="panel-sub">Meta = mesmo mês do ano anterior × (1 + % de crescimento configurado acima). Grupos vêm do cadastro completo de produtos — aparecem com "-" quando o cliente não tem venda naquele grupo.</div>
+      <div id="table-mapa-grupo"></div>
+    </div>
+  </section>
+
+  <div class="disclosure">
+    <b>Sobre este painel:</b> é um retrato (snapshot) dos números do arquivo Excel "ESTOQUE-VENDAS DO FLEXX NPRO+BEBIDAS ONLINE — DASHBOARD.xlsx" no momento em que foi gerado — os dados não se conectam automaticamente ao banco de dados. Para atualizar, basta reenviar uma exportação nova do Excel.
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<style id="print-page-style">@page{ size:A4 portrait; margin:12mm; }</style>
+<div class="print-overlay" id="print-preview-overlay">
+  <div class="print-overlay-bar">
+    <div class="print-overlay-title">Prévia de Impressão A4</div>
+    <div class="print-overlay-actions">
+      <span class="print-orient-tag" id="print-orient-tag">A4 Retrato</span>
+      <label>Orientação:
+        <select id="print-orientation-select" class="print-orient-select">
+          <option value="portrait">A4 Retrato</option>
+          <option value="landscape">A4 Paisagem</option>
+        </select>
+      </label>
+      <button type="button" class="print-btn-secondary" id="print-preview-close">Fechar</button>
+      <button type="button" class="print-btn-primary" id="print-preview-go">Imprimir A4</button>
+    </div>
+  </div>
+  <div class="print-overlay-scroll">
+    <div class="a4-page" id="a4-page"></div>
+  </div>
+</div>
+
+
+<script src="assets/app.js" defer></script>
+</body>
+</html>
