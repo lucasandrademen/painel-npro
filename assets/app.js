@@ -864,6 +864,15 @@ function makeTable(containerId, opts){
         return sortDir==='asc' ? cmp : -cmp;
       });
     }
+    // Bloco fixo no topo: linhas marcadas por opts.prioridade vêm sempre antes das
+    // demais, qualquer que seja a coluna ordenada (filter preserva a ordem, então
+    // a ordenação escolhida continua valendo dentro de cada bloco). Usado no Mapa
+    // da Venda para os grupos NP nunca ficarem perdidos no meio da lista.
+    if(opts.prioridade){
+      const topo = [], resto = [];
+      rows.forEach(r => (opts.prioridade(r) ? topo : resto).push(r));
+      rows = topo.concat(resto);
+    }
     return rows;
   }
 
@@ -2935,6 +2944,10 @@ function computeMapaVenda(soldRaw){
 // zero é exibido como "—" (mesmo tratamento visual de "sem valor"), em vez de
 // "R$ 0,00" — só afeta a exibição, o valor de 0 continua correto no cálculo.
 const fmtBRLMapa = n => (n==null||isNaN(n)||n===0) ? "—" : fmtBRL(n);
+// Os grupos NPRO ("01-NP LACTEOS", "02-NP CHOCOLATES", ... "99-NP INATIVOS") são o
+// foco do Mapa da Venda: ficam sempre no topo da Visão por Grupo, antes do restante
+// do cadastro, independente da coluna que estiver ordenando a tabela.
+const ehGrupoNP = nome => /^\s*(\d+\s*-\s*)?NP(RO)?\b/i.test(String(nome==null?'':nome));
 function mapaVendaHeaders(cal){
   const yCur2 = String(cal.yCur).slice(-2), yPrev2 = String(cal.yPrev).slice(-2);
   return [
@@ -2999,6 +3012,7 @@ function renderMapaVenda(){
     rows: result.porGrupo.map(r => Object.assign({label:r.grupo}, r)),
     getRow: r=>r, searchable:true, pageSize:15,
     defaultSort: {key:'acumAtual', dir:'desc'},
+    prioridade: r => ehGrupoNP(r.label),
   });
 }
 function initMapaVenda(){
