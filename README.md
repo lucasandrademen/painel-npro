@@ -5,7 +5,8 @@ Painel web da Mblogística (Nestlé Professional), na Vercel: página estática 
 ruptura, giro, ABC, cobertura, cross-sell, Mapa da Venda) roda no navegador, a partir das
 linhas de transação — não existe banco de dados nem back-end de negócio.
 
-Produção: https://painel-npro.vercel.app
+Produção: https://painel-npro.vercel.app  
+Código: https://github.com/lucasandrademen/painel-npro — todo push na `main` publica sozinho.
 
 ## Estrutura
 
