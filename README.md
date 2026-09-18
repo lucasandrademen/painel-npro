@@ -65,11 +65,29 @@ produção — publicar durante um teste troca os dados de todo mundo. Para mexe
 interface, `python3 -m http.server 4173` serve a página com o snapshot original (a função
 não existe e o painel cai no arquivo estático sozinho).
 
-## Publicar o código
+## Mexer no projeto (para quem entrou agora)
 
 ```bash
-vercel deploy --prod
+git clone <url-deste-repositorio> && cd painel-npro
+npm install            # só por causa do @vercel/blob, usado pela função
+vercel link            # escolha o time mb-logistica e o projeto painel-npro
+vercel dev --listen 4173
 ```
+
+Para mudar a **aparência ou os cálculos**, mexa em `assets/app.css` / `assets/app.js`;
+a página é `index.html`. Depois de alterar `app.js` ou `app.css`, suba o `?v=` deles no
+`index.html` — é o que faz o navegador de quem já usou o painel pegar a versão nova em vez
+da que está em cache.
+
+Publicar o código:
+
+```bash
+git push           # se o projeto estiver conectado ao Git na Vercel, já publica sozinho
+vercel deploy --prod   # publicação manual, sem depender do Git
+```
+
+Quem pode publicar: membros do time **mb-logistica** na Vercel (Settings → Members) e,
+para o push, quem tiver acesso a este repositório.
 
 ## Nota de acesso
 
