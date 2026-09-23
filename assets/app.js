@@ -84,6 +84,8 @@ const TABS = [
   {id:"cobertura", label:"Cobertura"},
   {id:"painel", label:"Painel Executivo"},
   {id:"mapa", label:"Mapa da Venda"},
+  {id:"nrab", label:"Acompanhamento NRAB"},
+  {id:"meta20", label:"Meta 20+"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -505,8 +507,8 @@ function loadStoredSnapshotIfAny(publicadoEm){
   try {
     const stored = localStorage.getItem(LS_KEY);
     if(!stored) return;
-    // Existe cópia local (envio que não foi publicado no app — sem senha, sem rede
-    // ou cancelado). Ela só continua valendo enquanto for mais nova que a versão
+    // Existe cópia local (envio que não foi publicado no app — sem rede ou erro
+    // do servidor). Ela só continua valendo enquanto for mais nova que a versão
     // publicada; se alguém publicou depois, a do servidor manda e a local é
     // descartada, senão essa pessoa ficaria presa nos próprios números para sempre.
     let localISO = null;
@@ -1584,7 +1586,7 @@ function normalizeHeader(s){ return String(s==null?'':s).trim().toUpperCase().re
 // clientes) não é usada — o cadastro de clientes/vendedores continua sendo
 // derivado da própria "CONSULTA DE VENDAS".
 const VENDAS_SHEET_REQUIRED = 'CONSULTA DE VENDAS';
-const VENDAS_SHEETS_OPTIONAL = ["CATEGORIA NPRO","CATEGORIA BEBIDAS"];
+const VENDAS_SHEETS_OPTIONAL = ["CATEGORIA NPRO","CATEGORIA BEBIDAS","BASE"];
 
 class UploadValidationError extends Error {}
 
@@ -1612,6 +1614,17 @@ function ensureXLSX(){
 function findSheetName(wb, expected){
   const target = normalizeSheetName(expected);
   return (wb.SheetNames||[]).find(n => normalizeSheetName(n)===target) || null;
+}
+// Como "CONSULTA DE VENDAS", mas retorna TODAS as abas cujo nome bate exatamente
+// ou começa com o nome esperado seguido de um sufixo (ex.: "CONSULTA DE VENDAS 2025",
+// "CONSULTA DE VENDAS 2026") — permite que a planilha traga o histórico de vendas
+// separado por ano em abas distintas, em vez de uma única aba "CONSULTA DE VENDAS".
+function findSheetNames(wb, expected){
+  const target = normalizeSheetName(expected);
+  return (wb.SheetNames||[]).filter(n => {
+    const norm = normalizeSheetName(n);
+    return norm===target || norm.startsWith(target+' ');
+  });
 }
 function sheetGridOp(wb, realName){
   return XLSX.utils.sheet_to_json(wb.Sheets[realName], {header:1, raw:true, defval:null});
@@ -1939,30 +1952,26 @@ async function parseGrupoOrigemSheet(wb, buf, zipEntries, expectedName, origem, 
   }
   return {found:true, pares:n};
 }
-async function parseVendasFile(wb, buf, zipEntries){
-  const expectedName = VENDAS_SHEET_REQUIRED;
-  const realName = findSheetName(wb, expectedName);
-  if(!realName) throw new UploadValidationError(`Não foi possível atualizar os dados de Vendas porque a aba "${expectedName}" não foi encontrada.`);
+// Lê UMA aba de vendas (uma "CONSULTA DE VENDAS", "CONSULTA DE VENDAS 2025", etc.)
+// e devolve suas linhas cruas — extraído de parseVendasFile para poder ser chamado
+// uma vez por ano/aba encontrada e depois juntar tudo num único histórico.
+async function parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap){
   const grid = await getSheetGridRobust(wb, buf, zipEntries, realName);
   const headerRow = findHeaderRowByAnchor(grid, 'SKU', 8);
-  if(!headerRow) throw new UploadValidationError(`A aba "${expectedName}" foi encontrada, mas não localizei a linha de cabeçalho (coluna "SKU").`);
+  if(!headerRow) throw new UploadValidationError(`A aba "${realName}" foi encontrada, mas não localizei a linha de cabeçalho (coluna "SKU").`);
   const map = headerIndexMap(grid, headerRow);
-  const cSetor = requireCol(map,'SETOR',expectedName);
-  const cSold = requireCol(map,'SOLD',expectedName);
-  const cRazao = requireCol(map,'RAZÃO SOCIAL',expectedName);
-  const cPedido = requireCol(map,'COD PEDIDO',expectedName);
-  const cData = requireCol(map,'DATA DO PEDIDO',expectedName);
-  const cSku = requireCol(map,'SKU',expectedName);
-  const cFat = requireCol(map,'FATURAMENTO',expectedName);
-  const cUnidVend = requireCol(map,'UNIDADES VENDIDAS',expectedName);
-  const cCxVend = requireCol(map,'CXS VENDIDAS',expectedName);
-  const cGrupo = requireCol(map,'GRUPO',expectedName);
-  const cFamilia = requireCol(map,'FAMÍLIA',expectedName);
+  const cSetor = requireCol(map,'SETOR',realName);
+  const cSold = requireCol(map,'SOLD',realName);
+  const cRazao = requireCol(map,'RAZÃO SOCIAL',realName);
+  const cPedido = requireCol(map,'COD PEDIDO',realName);
+  const cData = requireCol(map,'DATA DO PEDIDO',realName);
+  const cSku = requireCol(map,'SKU',realName);
+  const cFat = requireCol(map,'FATURAMENTO',realName);
+  const cUnidVend = requireCol(map,'UNIDADES VENDIDAS',realName);
+  const cCxVend = requireCol(map,'CXS VENDIDAS',realName);
+  const cGrupo = requireCol(map,'GRUPO',realName);
+  const cFamilia = requireCol(map,'FAMÍLIA',realName);
   const cMaterial = optCol(map,'MATERIAL');
-
-  const grupoOrigemMap = new Map();
-  const categoriaNpro = await parseGrupoOrigemSheet(wb, buf, zipEntries, 'CATEGORIA NPRO', 'NPRO', grupoOrigemMap);
-  const categoriaBebidas = await parseGrupoOrigemSheet(wb, buf, zipEntries, 'CATEGORIA BEBIDAS', 'BEBIDAS', grupoOrigemMap);
 
   // Bloco "De" / "Até" (período coberto pela extração) — localizado por rótulo,
   // já que pode estar sobreposto às primeiras linhas de dados da tabela.
@@ -1996,7 +2005,36 @@ async function parseVendasFile(wb, buf, zipEntries){
       fat: Number(ocell(grid,r,cFat))||0, unid: Number(ocell(grid,r,cUnidVend))||0, cx: Number(ocell(grid,r,cCxVend))||0,
     });
   }
-  return {rows, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem};
+  return {rows, dataDe, dataAte};
+}
+
+// Junta o histórico de todas as abas de vendas encontradas ("CONSULTA DE VENDAS",
+// ou uma por ano: "CONSULTA DE VENDAS 2025", "CONSULTA DE VENDAS 2026", ...) num
+// único conjunto de linhas — o restante do motor (parseVendasFile em diante)
+// continua enxergando "as vendas" como se fosse uma tabela só.
+async function parseVendasFile(wb, buf, zipEntries){
+  const expectedName = VENDAS_SHEET_REQUIRED;
+  const realNames = findSheetNames(wb, expectedName);
+  if(realNames.length===0) throw new UploadValidationError(`Não foi possível atualizar os dados de Vendas porque nenhuma aba "${expectedName}" (ou "${expectedName} <ano>") foi encontrada.`);
+
+  const grupoOrigemMap = new Map();
+  const categoriaNpro = await parseGrupoOrigemSheet(wb, buf, zipEntries, 'CATEGORIA NPRO', 'NPRO', grupoOrigemMap);
+  const categoriaBebidas = await parseGrupoOrigemSheet(wb, buf, zipEntries, 'CATEGORIA BEBIDAS', 'BEBIDAS', grupoOrigemMap);
+
+  const rows = [];
+  let dataDe = null, dataAte = null;
+  for(const realName of realNames){
+    const parte = await parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap);
+    rows.push(...parte.rows);
+    const deMs = dayMs(parte.dataDe), ateMs = dayMs(parte.dataAte);
+    if(deMs!=null && (dataDe==null || deMs < dayMs(dataDe))) dataDe = parte.dataDe;
+    if(ateMs!=null && (dataAte==null || ateMs > dayMs(dataAte))) dataAte = parte.dataAte;
+  }
+
+  const skusSemGrupoOrigem = new Set();
+  rows.forEach(r => { if(r.origem==='Varejo') skusSemGrupoOrigem.add(r.sku); });
+
+  return {rows, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem, sheetNames: realNames};
 }
 
 /* ============================== ORQUESTRADORES (upload independente) ==============================
@@ -2077,7 +2115,7 @@ async function applyEstoqueUpload(buf){
 async function applyVendasUpload(buf){
   const wb = XLSX.read(new Uint8Array(buf), {type:'array', cellDates:true});
   const zipEntries = zipFindEntries(buf);
-  const {rows: salesRowsRaw, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem} = await parseVendasFile(wb, buf, zipEntries);
+  const {rows: salesRowsRaw, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem, sheetNames} = await parseVendasFile(wb, buf, zipEntries);
 
   // ---- Corte "Realizada" — mesma regra do motor original: MIN(HOJE+1, Até+1) ----
   const now = new Date();
@@ -2140,15 +2178,22 @@ async function applyVendasUpload(buf){
 
   const crossRows = clientes.map(c => [c[0], c[1], c[2], 'Não','Não',0,0,0,'Sem compras no período','-']);
 
+  // Meta 20+: cadastro de clientes/visitas da aba BASE (o faturamento sai de
+  // baseVendas). Sem a aba, mantém o cadastro que já estava carregado.
+  const baseMeta20 = await parseMeta20BaseSheet(wb, buf, zipEntries);
+  const meta20 = baseMeta20 || (DATA.meta20 ? {
+    clientes: DATA.meta20.clientes || [], visitas: DATA.meta20.visitas || [], vendedoresPorSetor: DATA.meta20.vendedoresPorSetor || [],
+  } : {clientes: [], visitas: [], vendedoresPorSetor: []});
+
   const newData = Object.assign({}, DATA, {
-    vendedores, periodoPadrao, baseVendas, clientes,
+    vendedores, periodoPadrao, baseVendas, clientes, meta20,
     sku: { headers: DATA.sku.headers, rows: skuRows },
     cross: { headers: DATA.cross.headers, rows: crossRows },
   });
 
   const diagnostics = {
     ok: true, kind: 'vendas',
-    sheets: { [VENDAS_SHEET_REQUIRED]: true, 'CATEGORIA NPRO': categoriaNpro.found, 'CATEGORIA BEBIDAS': categoriaBebidas.found },
+    sheets: Object.assign({}, ...sheetNames.map(n => ({[n]: true})), { 'CATEGORIA NPRO': categoriaNpro.found, 'CATEGORIA BEBIDAS': categoriaBebidas.found, 'BASE': !!baseMeta20 }),
     counts: {
       vendasLinhas: baseVendas.length, skusVendidos: skusVendidosSet.size,
       skusSemGrupoOrigem: skusSemGrupoOrigem.size, skusSemGrupoOrigemList: Array.from(skusSemGrupoOrigem),
@@ -2160,7 +2205,8 @@ async function applyVendasUpload(buf){
 }
 
 function logImportDiagnostics(diag){
-  console.group('%cDiagnóstico de importação — ' + (diag.kind==='estoque' ? 'Estoque' : 'Vendas'), 'font-weight:bold;color:#1B3A6B;');
+  const nomeKind = diag.kind==='estoque' ? 'Estoque' : 'Vendas';
+  console.group('%cDiagnóstico de importação — ' + nomeKind, 'font-weight:bold;color:#1B3A6B;');
   console.log('Arquivo reconhecido:', diag.ok ? 'SIM' : 'NÃO');
   if(diag.kind==='estoque'){
     console.log('SKUs no arquivo de Estoque:', diag.counts.estoqueSkus);
@@ -2213,7 +2259,8 @@ function buildSummaryModal(diag, filename, onConfirm, onCancel){
     `;
   } else {
     title = 'Vendas reconhecidas';
-    subtitle = `${esc(filename)} — os dados abaixo serão calculados a partir da aba "${VENDAS_SHEET_REQUIRED}".`;
+    const vendasSheetNames = Object.keys(diag.sheets).filter(n => !VENDAS_SHEETS_OPTIONAL.includes(n));
+    subtitle = `${esc(filename)} — os dados abaixo serão calculados a partir d${vendasSheetNames.length>1?'as abas':'a aba'} "${esc(vendasSheetNames.join('", "'))}".`;
     function sheetLine(name, required){
       const found = diag.sheets[name];
       const icon = found ? '✅' : (required ? '❌' : '⚠️');
@@ -2228,7 +2275,7 @@ function buildSummaryModal(diag, filename, onConfirm, onCancel){
       `⚠️ ${semGrupo} SKU(s) vendido(s) com Grupo sem correspondência nas abas CATEGORIA NPRO/BEBIDAS — Origem classificada como "Varejo".`) : '';
     bodyHtml = `
       <div style="font-weight:700;font-size:12.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">Abas reconhecidas</div>
-      ${sheetLine(VENDAS_SHEET_REQUIRED,true)}
+      ${vendasSheetNames.map(n=>sheetLine(n,true)).join('')}
       ${VENDAS_SHEETS_OPTIONAL.map(n=>sheetLine(n,false)).join('')}
 
       <div style="font-weight:700;font-size:12.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;margin:16px 0 4px;">Resumo dos dados</div>
@@ -2294,41 +2341,9 @@ function setUploadStatus(msg, isError){
    /api/snapshot (Vercel Blob do projeto) e passa a valer para todo mundo, em
    qualquer máquina. Cada publicação guarda a versão anterior, então dá para
    voltar atrás. O localStorage continua existindo, mas só como rede de proteção
-   para quando a publicação não dá certo (sem senha, sem rede, ambiente offline).
+   para quando a publicação não dá certo (sem rede, ambiente offline).
    ================================================================================ */
 const API_SNAPSHOT = '/api/snapshot';
-const SS_SENHA = 'npro_senha_publicacao';
-
-function senhaSalva(){ try { return sessionStorage.getItem(SS_SENHA) || null; } catch(e){ return null; } }
-function guardarSenha(v){ try { sessionStorage.setItem(SS_SENHA, v); } catch(e){} }
-function esquecerSenha(){ try { sessionStorage.removeItem(SS_SENHA); } catch(e){} }
-
-// Caixa de senha própria (em vez de prompt(), bloqueado em alguns navegadores).
-function pedirSenha(aviso){
-  return new Promise(resolve => {
-    const fundo = document.createElement('div');
-    fundo.className = 'senha-overlay';
-    fundo.innerHTML = `<div class="senha-card" role="dialog" aria-modal="true" aria-labelledby="senha-titulo">
-      <h3 id="senha-titulo">Senha de publicação</h3>
-      <p>Publicar substitui os dados do painel <b>para todas as pessoas</b> que abrirem o link.</p>
-      ${aviso ? `<p class="senha-aviso">${esc(aviso)}</p>` : ''}
-      <input type="password" id="senha-input" autocomplete="current-password" placeholder="Senha" aria-label="Senha de publicação">
-      <div class="senha-acoes">
-        <button type="button" class="senha-btn-secundario" id="senha-cancelar">Só neste navegador</button>
-        <button type="button" class="senha-btn-primario" id="senha-ok">Publicar para todos</button>
-      </div>
-    </div>`;
-    document.body.appendChild(fundo);
-    const campo = fundo.querySelector('#senha-input');
-    const fechar = valor => { fundo.remove(); document.removeEventListener('keydown', aoTeclar); resolve(valor); };
-    const aoTeclar = ev => { if(ev.key === 'Escape') fechar(null); };
-    document.addEventListener('keydown', aoTeclar);
-    fundo.querySelector('#senha-cancelar').addEventListener('click', () => fechar(null));
-    fundo.querySelector('#senha-ok').addEventListener('click', () => fechar(campo.value.trim() || null));
-    campo.addEventListener('keydown', ev => { if(ev.key === 'Enter') fechar(campo.value.trim() || null); });
-    setTimeout(() => campo.focus(), 30);
-  });
-}
 
 // O JSON vai compactado (gzip) e em base64 — ~800 KB viram ~185 KB, bem dentro do
 // limite de corpo da função e com folga de sobra para a base de vendas crescer.
@@ -2352,11 +2367,11 @@ async function corpoCompactado(objeto){
   } catch(e){ return {corpo: texto, encoding: ''}; }
 }
 
-async function chamarPublicacao(payload, senha){
+async function chamarPublicacao(payload){
   const {corpo, encoding} = await corpoCompactado(payload);
   const res = await fetch(API_SNAPSHOT, {
     method: 'POST',
-    headers: {'Content-Type': 'text/plain;charset=utf-8', 'x-painel-senha': senha, 'x-painel-encoding': encoding},
+    headers: {'Content-Type': 'text/plain;charset=utf-8', 'x-painel-encoding': encoding},
     body: corpo,
   });
   let dados = {};
@@ -2369,25 +2384,16 @@ async function chamarPublicacao(payload, senha){
   return dados;
 }
 
-// Pede a senha (uma vez por sessão), publica e devolve o que aconteceu.
-// Nunca lança: quem chama decide o que fazer com cada desfecho.
-async function publicarNoApp(payload, textoAviso){
-  for(let tentativa = 0; tentativa < 3; tentativa++){
-    let senha = senhaSalva();
-    if(!senha){
-      senha = await pedirSenha(tentativa === 0 ? textoAviso : 'Senha incorreta — tente de novo.');
-      if(!senha) return {cancelado: true};
-    }
-    try {
-      const meta = await chamarPublicacao(payload, senha);
-      guardarSenha(senha);
-      return {ok: true, meta};
-    } catch(err){
-      if(err.status === 401){ esquecerSenha(); continue; }
-      return {erro: err};
-    }
+// Publica direto (sem senha — qualquer pessoa com o link pode publicar) e
+// devolve o que aconteceu. Nunca lança: quem chama decide o que fazer com cada
+// desfecho.
+async function publicarNoApp(payload){
+  try {
+    const meta = await chamarPublicacao(payload);
+    return {ok: true, meta};
+  } catch(err){
+    return {erro: err};
   }
-  return {erro: new Error('Senha de publicação incorreta.')};
 }
 
 // O cadastro completo de produtos é apagado de DATA logo no boot (ele é fixo e
@@ -2454,9 +2460,8 @@ function montarBotaoDesfazer(versoes){
   botao.onclick = async () => {
     if(!confirm(`Voltar o painel à versão anterior (${new Date(anterior.quando).toLocaleString('pt-BR')})? Isso vale para todas as pessoas.`)) return;
     setUploadStatus('Restaurando a versão anterior…', false);
-    const r = await publicarNoApp({restaurar: anterior.arquivo}, 'Restaurar a versão anterior para todo mundo:');
+    const r = await publicarNoApp({restaurar: anterior.arquivo});
     if(r.ok){ location.reload(); return; }
-    if(r.cancelado){ await atualizarBarraPublicacao(); return; }
     setUploadStatus(`Não consegui restaurar: ${(r.erro && r.erro.message) || r.erro}`, true);
   };
 }
@@ -2511,15 +2516,14 @@ function wireUploadInput(inputId, parseFn, labelUpper){
           }
           // Os dados já estão valendo nesta tela. Agora eles vão para o próprio
           // app (Vercel Blob), para que todo mundo veja o mesmo — e não só quem
-          // enviou. Se a publicação não rolar (senha, rede, ambiente offline), a
+          // enviou. Se a publicação não rolar (rede, ambiente offline), a
           // atualização continua valendo aqui e é guardada neste navegador, com
           // o aviso de que os outros ainda estão vendo a versão anterior.
           const quandoISO = new Date().toISOString();
           input.value = '';
           setUploadStatus(`Publicando ${labelUpper} para todo mundo…`, false);
           publicarNoApp(
-            {snapshot: snapshotCompleto(parsed.newData), arquivo: file.name, tipo: labelUpper.toLowerCase()},
-            `Você está publicando "${file.name}".`
+            {snapshot: snapshotCompleto(parsed.newData), arquivo: file.name, tipo: labelUpper.toLowerCase()}
           ).then(async r => {
             if(r.ok){
               try { localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_META_KEY); } catch(e){}
@@ -2528,9 +2532,7 @@ function wireUploadInput(inputId, parseFn, labelUpper){
               return;
             }
             const guardou = guardarSomenteNesteNavegador(parsed.newData, file.name, quandoISO);
-            const motivo = r.cancelado
-              ? 'não foi publicado para as outras pessoas'
-              : `não consegui publicar (${(r.erro && r.erro.message) || r.erro})`;
+            const motivo = `não consegui publicar (${(r.erro && r.erro.message) || r.erro})`;
             setUploadStatus(guardou
               ? `${labelUpper} aplicado só neste navegador — ${motivo}.`
               : `${labelUpper} aplicado só nesta tela — ${motivo}, e o navegador também não conseguiu guardar: ao recarregar, volta a versão publicada.`, true);
@@ -2577,10 +2579,8 @@ function initUpload(){
       const res = await fetch(SNAPSHOT_ORIGINAL_URL, {cache:'no-cache'});
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
       const original = await res.json();
-      const r = await publicarNoApp({snapshot: original, arquivo: 'snapshot original', tipo: 'original'},
-        'Restaurar o snapshot original para todo mundo:');
+      const r = await publicarNoApp({snapshot: original, arquivo: 'snapshot original', tipo: 'original'});
       if(r.ok){ location.reload(); return; }
-      if(r.cancelado){ await atualizarBarraPublicacao(); return; }
       setUploadStatus(`Não consegui restaurar o original: ${(r.erro && r.erro.message) || r.erro}`, true);
     } catch(err){
       setUploadStatus('Não consegui ler o snapshot original: ' + err.message, true);
@@ -2681,6 +2681,45 @@ const PRINT_CONFIG = {
       const wrap = document.getElementById('mapa-total-wrap');
       const visivel = wrap && wrap.style.display !== 'none';
       return visivel ? null : 'Busque um cliente pelo código SOLD antes de imprimir — o relatório desta aba é sempre de um cliente.';
+    },
+  },
+  // Faltava esta entrada: o botão "Imprimir A4" é injetado em TODAS as abas de
+  // TABS por initPrintButtons() sem checar se existe configuração — sem isto,
+  // clicar em "Imprimir A4" no Acompanhamento NRAB não fazia nada (openPrintPreview
+  // via PRINT_CONFIG['nrab'] indefinido, retorno silencioso). Mesmo padrão do
+  // Mapa da Venda: relatório sempre de um cliente, com o SOLD/Razão Social no
+  // cabeçalho e aviso se ninguém foi selecionado ainda.
+  nrab: {
+    title:'Acompanhamento de NRABs', orientation:'landscape', kpi:'kpi-nrab', blocks:[], hideFilters:true,
+    tables:[{id:'table-nrab-skus', title:'SKUs em NRAB do cliente'}],
+    headerExtra: () => {
+      const sel = document.getElementById('nrab-select-sold');
+      const sold = sel ? sel.value : '';
+      const razao = (document.getElementById('nrab-razao-value')||{}).textContent || '—';
+      if(!sold) return '';
+      return `<div class="print-filters-row"><span class="print-filter-chip"><b>Cliente (SOLD):</b> ${esc(sold)}</span>`
+        + `<span class="print-filter-chip"><b>Razão Social:</b> ${esc(razao)}</span></div>`;
+    },
+    guard: () => {
+      const wrap = document.getElementById('nrab-acompanhamento-wrap');
+      const visivel = wrap && wrap.style.display !== 'none';
+      return visivel ? null : 'Selecione, na lista de clientes, um SOLD com NRAB cadastrada antes de imprimir — o relatório desta aba é sempre de um cliente.';
+    },
+  },
+  meta20: {
+    title:'Meta 20+', orientation:'landscape', kpi:'kpi-meta20', blocks:[], hideFilters:true,
+    tables:[{id:'table-meta20', title:'Top 20 clientes'}],
+    headerExtra: () => {
+      const variante = (document.getElementById('meta20-select-variante')||{}).value || '';
+      const setor = (document.getElementById('meta20-select-setor')||{}).value || '';
+      if(!setor) return '';
+      return `<div class="print-filters-row"><span class="print-filter-chip"><b>Visão:</b> ${esc(variante.toUpperCase())}</span>`
+        + `<span class="print-filter-chip"><b>Setor/Empresa:</b> ${esc(setor)}</span></div>`;
+    },
+    guard: () => {
+      const wrap = document.getElementById('meta20-wrap');
+      const visivel = wrap && wrap.style.display !== 'none';
+      return visivel ? null : 'Selecione uma Visão e um Setor/Empresa antes de imprimir — o relatório desta aba é sempre de um recorte específico.';
     },
   },
 };
@@ -2871,8 +2910,6 @@ function initPrintButtons(){
      - %Cresc./Qued. Ano ant. (mês): (<mês>-<ano atual> - <mês>-<ano ant.>) / <mês>-<ano ant.>.
    "Visão por Grupo" sempre lista todos os grupos do cadastro completo de produtos (PRODUTO_MASTER_GRUPOS),
    mesmo os que o cliente nunca comprou (aparecem com "-"), por decisão explícita do usuário. */
-const MESES_PT_MAPA = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-const MESES_ABREV_MAPA = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const LS_MAPA_GROWTH_KEY = 'npro_mapa_meta_growth_pct';
 
 function loadMapaGrowthPref(){
@@ -2936,7 +2973,7 @@ function computeMapaVenda(soldRaw){
     porGrupo: PRODUTO_MASTER_GRUPOS.map(g => Object.assign({grupo:g}, metrics(g))),
     razaoSocial: cliMeta.razaoSocial || null,
     vcode: cliMeta.vcode || null,
-    cal: {yCur, yPrev, mCur, mesAtualNome: MESES_PT_MAPA[mCur-1], mesAbrev: MESES_ABREV_MAPA[mCur-1]},
+    cal: {yCur, yPrev, mCur},
   };
 }
 
@@ -2948,17 +2985,22 @@ const fmtBRLMapa = n => (n==null||isNaN(n)||n===0) ? "—" : fmtBRL(n);
 // foco do Mapa da Venda: ficam sempre no topo da Visão por Grupo, antes do restante
 // do cadastro, independente da coluna que estiver ordenando a tabela.
 const ehGrupoNP = nome => /^\s*(\d+\s*-\s*)?NP(RO)?\b/i.test(String(nome==null?'':nome));
+// Os rótulos NÃO citam o nome do mês corrente (ex.: "Setembro-26") de propósito
+// — a pedido do usuário: o painel é usado ano após ano e mês após mês, e um
+// rótulo com o nome do mês fixo no cabeçalho ficava "preso" ao mês em que foi
+// olhado, confundindo quem reabrisse a aba em outro mês/ano. "Ano Anterior"/
+// "Ano Atual" e "Mês Atual" continuam corretos em qualquer mês, porque o valor
+// por trás de cada coluna já é recalculado a partir de cal.mCur/yCur/yPrev.
 function mapaVendaHeaders(cal){
-  const yCur2 = String(cal.yCur).slice(-2), yPrev2 = String(cal.yPrev).slice(-2);
   return [
-    {key:'acumAnterior', label:`Acumulado ${cal.yPrev} (JAN a ${cal.mesAbrev})`, format:fmtBRLMapa, align:'right'},
-    {key:'acumAtual', label:`Acumulado ${cal.yCur} (JAN a ${cal.mesAbrev})`, format:fmtBRLMapa, align:'right'},
+    {key:'acumAnterior', label:'Acumulado Ano Anterior', format:fmtBRLMapa, align:'right'},
+    {key:'acumAtual', label:'Acumulado Ano Atual', format:fmtBRLMapa, align:'right'},
     {key:'crescAno', label:'%Cresc./Qued. Ano ant.', format:fmtPct, align:'right'},
     {key:'media3m', label:'Venda Média Últ. 3 meses', format:fmtBRLMapa, align:'right'},
-    {key:'mesAnoAnterior', label:`${cal.mesAtualNome}-${yPrev2}`, format:fmtBRLMapa, align:'right'},
+    {key:'mesAnoAnterior', label:'Mês Atual — Ano Anterior', format:fmtBRLMapa, align:'right'},
     {key:'growth', label:'%Cresc. (meta)', format:fmtPct, align:'right'},
     {key:'meta', label:'Meta', format:fmtBRLMapa, align:'right'},
-    {key:'mesAtual', label:`${cal.mesAtualNome}-${yCur2}`, format:fmtBRLMapa, align:'right'},
+    {key:'mesAtual', label:'Mês Atual — Ano Atual', format:fmtBRLMapa, align:'right'},
     {key:'pctMeta', label:'%Meta', format:fmtPct, align:'right'},
     {key:'crescMes', label:'%Cresc./Qued. Ano ant.', format:fmtPct, align:'right'},
   ];
@@ -3031,6 +3073,828 @@ function initMapaVenda(){
   RENDERERS.mapa = renderMapaVenda;
 }
 
+/* ============================================================================
+   ACOMPANHAMENTO DE NRAB — módulo isolado, adicionado por cima do sistema
+   existente sem mexer no motor de recálculo por período, no upload/publicação
+   de Estoque/Vendas, nem em nenhuma outra aba.
+   ----------------------------------------------------------------------------
+   O cadastro de NRABs (SOLD + SKU + regra "compra X, leva Y" + data de início)
+   fica num campo PRÓPRIO e separado — DATA.nrab.registros — nunca dentro de
+   DATA.baseVendas: editar ou excluir uma NRAB não apaga nem altera nenhuma
+   linha do histórico de vendas. Mas, a pedido do usuário, esse cadastro
+   PRECISA aparecer para todo mundo que abrir o link — então cada
+   adicionar/editar/excluir publica automaticamente uma nova versão do
+   snapshot (mesmo mecanismo /api/snapshot do Enviar Estoque/Enviar Vendas),
+   preservando vendas/estoque como estão. Se a publicação não rolar (rede
+   fora, por exemplo), a mudança some na tela e a pessoa é avisada — em vez de
+   fingir que salvou só para ela, o que criaria versões divergentes do
+   cadastro entre navegadores.
+   O acompanhamento em si continua 100% derivado: lê DATA.baseVendas (só
+   leitura) toda vez que é desenhado, então reage sozinho a qualquer novo
+   Enviar Vendas e a qualquer edição no cadastro de NRAB.
+   ========================================================================= */
+let NRAB_REGISTROS = [];
+let nrabEditId = null;
+let nrabSelectedSold = '';
+let nrabPublicando = false;
+
+// Fonte de verdade = DATA.nrab.registros (parte do snapshot publicado). Chamado
+// no início de todo render da aba, então acompanha qualquer Enviar Vendas/
+// Enviar Estoque e qualquer publicação feita a partir daqui.
+function nrabSyncFromData(){
+  NRAB_REGISTROS = (DATA.nrab && Array.isArray(DATA.nrab.registros)) ? DATA.nrab.registros : [];
+}
+
+function nrabProximoId(){ return 'nrab_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+// Publica QUALQUER campo extra de DATA (cadastros feitos aqui no app, como o de
+// NRAB ou o de Metas do Meta 20+) pelo mesmo mecanismo /api/snapshot do Enviar
+// Estoque/Enviar Vendas — para valer para todos. Se a publicação falhar, desfaz
+// a mudança local (DATA volta ao estado anterior) em vez de deixar o cadastro
+// divergente entre navegadores.
+async function publicarCampoDATA(campoNome, valor, arquivo, tipo){
+  const dataAnterior = DATA;
+  DATA = Object.assign({}, DATA, {[campoNome]: valor});
+  const r = await publicarNoApp({snapshot: snapshotCompleto(DATA), arquivo, tipo});
+  if(r.ok){
+    await atualizarBarraPublicacao();
+    return {ok:true};
+  }
+  DATA = dataAnterior;
+  return {ok:false, erro:r.erro};
+}
+
+// SOLD+SKU é a chave natural de uma NRAB — cadastrar de novo o mesmo par
+// atualiza a regra vigente em vez de duplicar (a pedido do usuário: "alterar
+// posteriormente as regras de cada SKU sem precisar excluir e cadastrar tudo
+// novamente").
+function nrabPublicarLista(novaLista){
+  return publicarCampoDATA('nrab', {registros: novaLista}, 'cadastro de NRAB', 'nrab');
+}
+async function nrabUpsert(rec){
+  const lista = NRAB_REGISTROS.slice();
+  const idxMesmoParNoutroId = lista.findIndex(r =>
+    String(r.sold)===String(rec.sold) && String(r.sku)===String(rec.sku) && r.id!==rec.id);
+  if(idxMesmoParNoutroId>=0){
+    lista[idxMesmoParNoutroId] = Object.assign({}, lista[idxMesmoParNoutroId], rec, {id: lista[idxMesmoParNoutroId].id});
+  } else {
+    const idxExistente = lista.findIndex(r => r.id===rec.id);
+    if(idxExistente>=0) lista[idxExistente] = Object.assign({}, lista[idxExistente], rec);
+    else lista.push(rec);
+  }
+  return nrabPublicarLista(lista);
+}
+async function nrabDelete(id){
+  const lista = NRAB_REGISTROS.filter(r => r.id!==id);
+  return nrabPublicarLista(lista);
+}
+
+function nrabMesOffset(mesYYYYMM, offset){
+  const [y,m] = mesYYYYMM.split('-').map(Number);
+  let ano = y, mes = m + offset;
+  while(mes<1){ mes += 12; ano--; }
+  while(mes>12){ mes -= 12; ano++; }
+  return ano + '-' + String(mes).padStart(2,'0');
+}
+
+// Apuração de uma NRAB (um SOLD+SKU): meses -3/-2/-1/ação a partir da data de
+// início cadastrada, e o realizado desde então ("período da ação"). NRABs
+// realizadas = soma, por Nº DE PEDIDO, de floor(unidades do pedido ÷ "leva") —
+// nunca somando pedidos diferentes entre si (regra explícita do usuário).
+function computeSkuNrab(rec){
+  const sold = String(rec.sold), sku = String(rec.sku);
+  const mesAcao = String(rec.dataInicio).slice(0,7);
+  const mesM1 = nrabMesOffset(mesAcao,-1), mesM2 = nrabMesOffset(mesAcao,-2), mesM3 = nrabMesOffset(mesAcao,-3);
+  const linhas = (DATA.baseVendas||[]).filter(r => String(r[0])===sold && String(r[4])===sku);
+
+  const somaUnidNoMes = mes => linhas
+    .filter(r => String(r[3]||'').slice(0,7)===mes)
+    .reduce((s,r) => s + (Number(r[10])||0), 0);
+  const valM3 = somaUnidNoMes(mesM3), valM2 = somaUnidNoMes(mesM2), valM1 = somaUnidNoMes(mesM1), valAcao = somaUnidNoMes(mesAcao);
+  const media3 = (valM3+valM2+valM1)/3;
+
+  const linhasPeriodo = linhas.filter(r => String(r[3]||'') >= String(rec.dataInicio));
+  const qtdPeriodo = linhasPeriodo.reduce((s,r) => s + (Number(r[10])||0), 0);
+  const fatPeriodo = linhasPeriodo.reduce((s,r) => s + (Number(r[9])||0), 0);
+
+  const unidPorPedido = new Map();
+  linhasPeriodo.forEach(r => {
+    const pedido = String(r[2]);
+    unidPorPedido.set(pedido, (unidPorPedido.get(pedido)||0) + (Number(r[10])||0));
+  });
+  const leva = Number(rec.leva)||0;
+  let nrabsRealizadas = 0;
+  if(leva>0) unidPorPedido.forEach(qtd => { nrabsRealizadas += Math.floor(qtd/leva); });
+
+  let evolucaoPct = null;
+  if(media3>0) evolucaoPct = (valAcao-media3)/media3;
+  else if(valAcao>0) evolucaoPct = Infinity; // sem base de comparação (média = 0)
+
+  return {
+    mesM3:{key:mesM3,val:valM3}, mesM2:{key:mesM2,val:valM2}, mesM1:{key:mesM1,val:valM1}, mesAcao:{key:mesAcao,val:valAcao},
+    media3, qtdPeriodo, fatPeriodo, pedidos: unidPorPedido.size, nrabsRealizadas, evolucaoPct,
+  };
+}
+
+function nrabMsg(texto, tipo){
+  const el = document.getElementById('nrab-form-msg');
+  if(!el) return;
+  el.textContent = texto || '';
+  el.className = 'nrab-msg' + (tipo==='erro' ? ' is-error' : tipo==='ok' ? ' is-ok' : '');
+}
+
+function nrabResetForm(){
+  nrabEditId = null;
+  const form = document.getElementById('nrab-form');
+  if(form) form.reset();
+  document.getElementById('nrab-form-title').textContent = 'Cadastrar NRAB';
+  document.getElementById('nrab-input-status').value = 'Ativa';
+  document.getElementById('nrab-btn-salvar').textContent = 'Salvar NRAB';
+  document.getElementById('nrab-btn-cancelar').style.display = 'none';
+}
+
+function nrabPreencherForm(rec){
+  nrabEditId = rec.id;
+  document.getElementById('nrab-form-title').textContent = `Editar NRAB — SOLD ${rec.sold} / SKU ${rec.sku}`;
+  document.getElementById('nrab-input-sold').value = rec.sold;
+  document.getElementById('nrab-input-sku').value = rec.sku;
+  document.getElementById('nrab-input-data').value = rec.dataInicio;
+  document.getElementById('nrab-input-compra').value = rec.compra;
+  document.getElementById('nrab-input-leva').value = rec.leva;
+  document.getElementById('nrab-input-status').value = rec.status;
+  document.getElementById('nrab-btn-salvar').textContent = 'Atualizar NRAB';
+  document.getElementById('nrab-btn-cancelar').style.display = '';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function renderNrabCadastroTable(){
+  const wrap = document.getElementById('table-nrab-cadastro');
+  if(!wrap) return;
+  makeTable('table-nrab-cadastro', {
+    headers: [
+      {key:'sold', label:'SOLD'},
+      {key:'razao', label:'Razão Social'},
+      {key:'sku', label:'SKU'},
+      {key:'descricao', label:'Descrição'},
+      {key:'regra', label:'Regra'},
+      {key:'dataInicio', label:'Início', format:v => v ? esc(String(v).split('-').reverse().join('/')) : '—'},
+      {key:'status', label:'Status'},
+      {key:'acoes', label:'', format:v=>v},
+    ],
+    rows: NRAB_REGISTROS,
+    getRow: r => {
+      const meta = (typeof clienteMetaMap!=='undefined' && clienteMetaMap) ? clienteMetaMap.get(String(r.sold)) : null;
+      const skuMeta = (typeof skuMaster!=='undefined' && skuMaster) ? skuMaster.get(String(r.sku)) : null;
+      return {
+        sold: r.sold, razao: (meta && meta.razaoSocial) || '—',
+        sku: r.sku, descricao: (skuMeta && skuMeta.material) || '—',
+        regra: `Compra ${r.compra} → Leva ${r.leva}`, dataInicio: r.dataInicio, status: r.status,
+        acoes: `<div class="nrab-actions-cell">
+          <button type="button" class="nrab-link-btn" data-nrab-edit="${esc(r.id)}">Editar</button>
+          <button type="button" class="nrab-link-btn is-danger" data-nrab-del="${esc(r.id)}">Excluir</button>
+        </div>`,
+      };
+    },
+    searchable: true, pageSize: 10, defaultSort: {key:'sold', dir:'asc'},
+  });
+  // Delegação de evento no container (e não nos botões): a tabela recria o
+  // <tbody> a cada busca/ordenação/paginação, então um listener preso ao botão
+  // seria perdido — preso ao container ele sobrevive a qualquer re-render.
+  if(!wrap._nrabWired){
+    wrap.addEventListener('click', e => {
+      const editBtn = e.target.closest('[data-nrab-edit]');
+      if(editBtn){
+        const rec = NRAB_REGISTROS.find(r => r.id===editBtn.dataset.nrabEdit);
+        if(rec) nrabPreencherForm(rec);
+        return;
+      }
+      const delBtn = e.target.closest('[data-nrab-del]');
+      if(delBtn){
+        const rec = NRAB_REGISTROS.find(r => r.id===delBtn.dataset.nrabDel);
+        if(!rec || nrabPublicando) return;
+        if(!confirm(`Excluir a NRAB do SOLD ${rec.sold} / SKU ${rec.sku}? Vale para todos que acessam o link. O histórico de vendas não é alterado.`)) return;
+        nrabPublicando = true;
+        nrabMsg('Publicando exclusão para todos…', '');
+        nrabDelete(rec.id).then(r => {
+          nrabPublicando = false;
+          if(r.ok){
+            if(nrabEditId===rec.id) nrabResetForm();
+            nrabMsg(`NRAB do SOLD ${rec.sold} / SKU ${rec.sku} excluída para todos.`, 'ok');
+          } else {
+            nrabMsg(`Não consegui publicar a exclusão (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado.`, 'erro');
+          }
+          renderNrab();
+        });
+      }
+    });
+    wrap._nrabWired = true;
+  }
+}
+
+function renderNrabSelectSold(){
+  const sel = document.getElementById('nrab-select-sold');
+  if(!sel) return;
+  const solds = Array.from(new Set(NRAB_REGISTROS.map(r => String(r.sold)))).sort((a,b) => a.localeCompare(b,'pt-BR',{numeric:true}));
+  const desejado = solds.includes(sel.value) ? sel.value : (solds.includes(nrabSelectedSold) ? nrabSelectedSold : '');
+  sel.innerHTML = '<option value="">Selecione um cliente…</option>' + solds.map(s => {
+    const meta = (typeof clienteMetaMap!=='undefined' && clienteMetaMap) ? clienteMetaMap.get(s) : null;
+    const label = meta && meta.razaoSocial ? `${s} — ${meta.razaoSocial}` : s;
+    return `<option value="${esc(s)}">${esc(label)}</option>`;
+  }).join('');
+  sel.value = desejado;
+}
+
+function renderNrabAcompanhamento(){
+  const sel = document.getElementById('nrab-select-sold');
+  const wrap = document.getElementById('nrab-acompanhamento-wrap');
+  const hint = document.getElementById('nrab-empty-hint');
+  const razaoEl = document.getElementById('nrab-razao-value');
+  if(!sel || !wrap || !hint || !razaoEl) return;
+  const sold = sel.value;
+  nrabSelectedSold = sold;
+
+  const registros = sold ? NRAB_REGISTROS.filter(r => String(r.sold)===sold) : [];
+  if(!sold || !registros.length){
+    wrap.style.display = 'none'; hint.style.display = '';
+    razaoEl.textContent = '—';
+    return;
+  }
+  hint.style.display = 'none'; wrap.style.display = '';
+  const meta = (typeof clienteMetaMap!=='undefined' && clienteMetaMap) ? clienteMetaMap.get(sold) : null;
+  razaoEl.textContent = (meta && meta.razaoSocial) || '—';
+
+  const linhas = registros.map(rec => {
+    const calc = computeSkuNrab(rec);
+    const skuMeta = (typeof skuMaster!=='undefined' && skuMaster) ? skuMaster.get(String(rec.sku)) : null;
+    return Object.assign({rec, descricao: (skuMeta && skuMeta.material) || '—'}, calc);
+  });
+
+  const totalNrabs = linhas.reduce((s,l) => s+l.nrabsRealizadas, 0);
+  const totalPedidos = linhas.reduce((s,l) => s+l.pedidos, 0);
+  const evoValidas = linhas.filter(l => isFinite(l.evolucaoPct));
+  const evoMedia = evoValidas.length ? evoValidas.reduce((s,l) => s+l.evolucaoPct, 0)/evoValidas.length : null;
+
+  renderKPIs('kpi-nrab', [
+    {label:'SKUs em NRAB', value: fmtInt(registros.length)},
+    {label:'NRABs realizadas (total)', value: fmtInt(totalNrabs)},
+    {label:'Pedidos com SKU(s) em NRAB', value: fmtInt(totalPedidos)},
+    {label:'Evolução média vs. 3 meses antes', value: evoMedia==null ? '—' : (evoMedia>=0?'+':'')+fmtPct(evoMedia), tone: evoMedia==null ? undefined : (evoMedia>=0?'good':'critical')},
+  ]);
+
+  const fmtEvolucao = l => {
+    if(l.evolucaoPct==null) return '—';
+    if(!isFinite(l.evolucaoPct)) return 'Novo (sem venda nos 3 meses anteriores)';
+    return (l.evolucaoPct>=0?'+':'') + fmtPct(l.evolucaoPct);
+  };
+
+  makeTable('table-nrab-skus', {
+    headers: [
+      {key:'sku', label:'SKU'},
+      {key:'descricao', label:'Descrição'},
+      {key:'regra', label:'Regra NRAB'},
+      {key:'m3', label:'Mês -3', align:'right', format:fmtInt},
+      {key:'m2', label:'Mês -2', align:'right', format:fmtInt},
+      {key:'m1', label:'Mês -1', align:'right', format:fmtInt},
+      {key:'macao', label:'Mês da ação', align:'right', format:fmtInt},
+      {key:'qtdPeriodo', label:'Vendido no período da ação', align:'right', format:fmtInt},
+      {key:'pedidos', label:'Nº de pedidos', align:'right', format:fmtInt},
+      {key:'nrabsRealizadas', label:'NRABs realizadas', align:'right', format:fmtInt},
+      {key:'evolucao', label:'Evolução vs. média anterior', align:'right'},
+      {key:'status', label:'Status'},
+    ],
+    rows: linhas,
+    getRow: l => ({
+      sku: l.rec.sku, descricao: l.descricao, regra: `Compra ${l.rec.compra} → Leva ${l.rec.leva}`,
+      m3: l.mesM3.val, m2: l.mesM2.val, m1: l.mesM1.val, macao: l.mesAcao.val,
+      qtdPeriodo: l.qtdPeriodo, pedidos: l.pedidos, nrabsRealizadas: l.nrabsRealizadas,
+      evolucao: fmtEvolucao(l), status: l.rec.status,
+    }),
+    searchable: false, pageSize: 20, defaultSort: {key:'sku', dir:'asc'},
+  });
+}
+
+// Datalists (SOLD e SKU) do formulário de cadastro — mesmo padrão já usado no
+// Mapa da Venda (input com autocomplete nativo, sem travar o campo a um <select>
+// de milhares de opções). Refeitas a cada render para acompanhar Enviar Vendas.
+function renderNrabDatalists(){
+  const soldDatalist = document.getElementById('nrab-sold-list');
+  if(soldDatalist) soldDatalist.innerHTML = (DATA.clientes||[]).map(c =>
+    `<option value="${esc(String(c[0]))}">${esc(c[1]||'')}</option>`).join('');
+  const skuDatalist = document.getElementById('nrab-sku-list');
+  if(skuDatalist && DATA.sku && DATA.sku.headers){
+    const h = DATA.sku.headers;
+    const iCode = h.indexOf('SKU'), iMat = h.indexOf('Material');
+    skuDatalist.innerHTML = (DATA.sku.rows||[]).map(r =>
+      `<option value="${esc(String(r[iCode]))}">${esc(r[iMat]||'')}</option>`).join('');
+  }
+}
+
+function renderNrab(){
+  nrabSyncFromData();
+  renderNrabDatalists();
+  renderNrabCadastroTable();
+  renderNrabSelectSold();
+  renderNrabAcompanhamento();
+}
+
+function initNrab(){
+  const form = document.getElementById('nrab-form');
+  if(!form) return; // aba não presente neste HTML — módulo fica inerte
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    if(nrabPublicando) return;
+    const sold = document.getElementById('nrab-input-sold').value.trim();
+    const sku = document.getElementById('nrab-input-sku').value.trim();
+    const dataInicio = document.getElementById('nrab-input-data').value;
+    const compra = Number(document.getElementById('nrab-input-compra').value);
+    const leva = Number(document.getElementById('nrab-input-leva').value);
+    const status = document.getElementById('nrab-input-status').value;
+    if(!sold || !sku || !dataInicio || !compra || !leva){
+      nrabMsg('Preencha SOLD, SKU, data de início, compra e leva.', 'erro');
+      return;
+    }
+    if(leva<=compra){
+      nrabMsg('A quantidade "Leva" deve ser maior que a quantidade "Compra".', 'erro');
+      return;
+    }
+    const rec = {id: nrabEditId || nrabProximoId(), sold, sku, dataInicio, compra, leva, status};
+    nrabPublicando = true;
+    const btn = document.getElementById('nrab-btn-salvar');
+    if(btn) btn.disabled = true;
+    nrabMsg('Publicando NRAB para todos…', '');
+    nrabUpsert(rec).then(r => {
+      nrabPublicando = false;
+      if(btn) btn.disabled = false;
+      if(r.ok){
+        nrabMsg(`NRAB do SOLD ${sold} / SKU ${sku} salva e publicada para todos.`, 'ok');
+        nrabResetForm();
+      } else {
+        nrabMsg(`Não consegui publicar (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado. Tente de novo.`, 'erro');
+      }
+      renderNrab();
+    });
+  });
+  document.getElementById('nrab-btn-cancelar').addEventListener('click', () => { nrabResetForm(); nrabMsg('', ''); });
+  document.getElementById('nrab-select-sold').addEventListener('change', renderNrabAcompanhamento);
+  RENDERERS.nrab = renderNrab;
+  nrabMigrarLocalStorageAntigo();
+}
+
+// Versões anteriores guardavam o cadastro só no localStorage deste navegador
+// (LS_NRAB_LEGACY_KEY). Na primeira vez que a aba carrega depois desta
+// atualização, se ainda não existe nada publicado (DATA.nrab vazio), essas
+// NRABs "presas" neste navegador são publicadas automaticamente — assim elas
+// passam a valer para todo mundo em vez de sumirem silenciosamente.
+const LS_NRAB_LEGACY_KEY = 'npro_nrab_registros_v1';
+async function nrabMigrarLocalStorageAntigo(){
+  if(DATA.nrab && Array.isArray(DATA.nrab.registros) && DATA.nrab.registros.length) return;
+  let legado = [];
+  try { const raw = localStorage.getItem(LS_NRAB_LEGACY_KEY); legado = raw ? JSON.parse(raw) : []; }
+  catch(e){ legado = []; }
+  if(!Array.isArray(legado) || !legado.length) return;
+  const r = await nrabPublicarLista(legado);
+  if(r.ok){
+    try { localStorage.removeItem(LS_NRAB_LEGACY_KEY); } catch(e){}
+    renderNrab();
+  }
+}
+
+/* ============================================================================
+   META 20+ (BRN2 / BRN8 / EMPRESA) — módulo isolado, adicionado por cima do
+   sistema existente.
+   ----------------------------------------------------------------------------
+   Replica o relatório Excel "META VS 20+BRN2.xlsx": ranking dos 20 clientes
+   com maior faturamento por Setor (ou da Empresa toda, na visão Empresa) num
+   trimestre, comparando a meta do Setor — repartida entre os clientes pela
+   representatividade de cada um — contra o realizado no mês.
+   Fonte de dados: a própria planilha de Vendas (botão "Enviar Vendas") — não
+   existe mais um arquivo Meta 20+ separado. O faturamento sai de
+   DATA.baseVendas, separado pela Origem de cada linha (mesma divisão do
+   arquivo antigo):
+     BRN2    = tudo que não é BEBIDAS (NPRO + Varejo), por Setor
+     BRN8    = BEBIDAS, por Setor
+     EMPRESA = tudo, chave única META20_CHAVE_EMPRESA
+     VAREJO  = só Varejo, por Setor (coluna de comparação)
+   Razão Social / Setor do cliente, Dia de Visita / Ciclo e o par
+   Setor->Vendedor vêm da aba "BASE" da mesma planilha (DATA.meta20).
+   A meta de cada Setor/Empresa é um cadastro à parte (DATA.meta20Objetivos),
+   editável aqui no app, porque no Excel original ela já era um valor de
+   entrada mantido fora do cálculo (aba "obj"), não algo derivado da planilha.
+   ========================================================================= */
+
+const META20_CHAVE_EMPRESA = '1'; // código da Empresa usado no cadastro de metas
+
+/* ---------------------- Upload de Vendas: aba BASE (cadastro de clientes) ---------------------- */
+// Sold -> Razão Social -> Setor, Sold -> Dia de Visita -> Ciclo e Setor ->
+// Vendedor — o Excel usa VLOOKUP (primeira ocorrência vence); aqui replicamos
+// isso só guardando a primeira linha vista por Sold/Setor.
+// A aba traz blocos com cabeçalhos de mesmo nome ("Setor" aparece várias vezes:
+// junto do cliente/Sold e, ao lado de "Vendedor", como tabela de apoio
+// Setor->Vendedor). headerIndexMap só guarda a ÚLTIMA coluna de cada nome
+// repetido, então em vez de confiar no nome "Setor" para achar a coluna do
+// cliente, usamos a coluna logo depois de "Razão Social"; e para o par
+// Setor->Vendedor usamos a coluna logo ANTES de "Vendedor" (nome que só
+// aparece uma vez com essa grafia, esse é confiável).
+async function parseMeta20BaseSheet(wb, buf, zipEntries){
+  const vazio = null;
+  const realName = findSheetName(wb, 'BASE');
+  if(!realName) return vazio;
+  let grid;
+  try { grid = await getSheetGridRobust(wb, buf, zipEntries, realName); }
+  catch(e){ return vazio; }
+  const headerRow = findHeaderRowByAnchor(grid, 'Sold', 8);
+  if(!headerRow) return vazio;
+  const map = headerIndexMap(grid, headerRow);
+  const cSold = optCol(map,'Sold'); if(!cSold) return vazio;
+  const cRazao = optCol(map,'Razão Social');
+  const cSetorCliente = cRazao ? cRazao+1 : null;
+  const cVisita = optCol(map,'Dia de Visita'), cCiclo = optCol(map,'Ciclo');
+  const cVendedor = optCol(map,'Vendedor');
+  const cSetorVendedor = cVendedor ? cVendedor-1 : null;
+
+  const clientes = [], visitas = [];
+  const soldsVistos = new Set();
+  const vendedorPorSetor = new Map();
+  let blankStreak = 0;
+  for(let r=headerRow+1; r<=grid.length && blankStreak<15; r++){
+    const soldV = ocell(grid,r,cSold);
+    if(cSetorVendedor && cVendedor){
+      const setorV = ocell(grid,r,cSetorVendedor), vendedorV = ocell(grid,r,cVendedor);
+      if(setorV!=null && !vendedorPorSetor.has(String(setorV))){
+        vendedorPorSetor.set(String(setorV), vendedorV!=null ? String(vendedorV).trim() : null);
+      }
+    }
+    if(soldV==null){ blankStreak++; continue; }
+    blankStreak = 0;
+    const sold = String(soldV);
+    if(soldsVistos.has(sold)) continue;
+    soldsVistos.add(sold);
+    clientes.push([sold, cRazao?ocell(grid,r,cRazao):null, cSetorCliente?ocell(grid,r,cSetorCliente):null]);
+    const visita = cVisita ? ocell(grid,r,cVisita) : null;
+    const ciclo = cCiclo ? ocell(grid,r,cCiclo) : null;
+    visitas.push([sold, typeof visita==='string' ? visita.trim() : visita, typeof ciclo==='string' ? ciclo.trim() : ciclo]);
+  }
+  return {clientes, visitas, vendedoresPorSetor: Array.from(vendedorPorSetor.entries())};
+}
+
+/* ---------------------- Faturamento derivado de DATA.baseVendas ---------------------- */
+// Linhas no formato [chave, faturamento, sold, dataISO] — o mesmo que o motor
+// de ranking já usava. Recalculado só quando DATA.baseVendas muda.
+let _meta20FatCache = {fonte: null, dados: null};
+function meta20Faturamento(){
+  const base = DATA.baseVendas || [];
+  if(_meta20FatCache.fonte===base) return _meta20FatCache.dados;
+  const brn2 = [], brn8 = [], empresa = [], varejo = [];
+  for(const r of base){
+    const setor = r[1]!=null ? String(r[1]) : null;
+    const sold = String(r[0]);
+    const data = r[3] || null;
+    const fat = Number(r[9]) || 0;
+    const origem = r[7];
+    empresa.push([META20_CHAVE_EMPRESA, fat, sold, data]);
+    if(origem==='BEBIDAS') brn8.push([setor, fat, sold, data]);
+    else brn2.push([setor, fat, sold, data]);
+    if(origem==='Varejo') varejo.push([setor, fat, sold, data]);
+  }
+  const dados = {brn2, brn8, empresa, varejo};
+  _meta20FatCache = {fonte: base, dados};
+  return dados;
+}
+
+/* ---------------------- Cadastro de Metas (Setor/Empresa -> Objetivo) ---------------------- */
+let META20_OBJETIVOS = [];
+let meta20ObjEditId = null;
+let meta20Publicando = false;
+
+function meta20SyncFromData(){
+  META20_OBJETIVOS = (DATA.meta20Objetivos && Array.isArray(DATA.meta20Objetivos.registros)) ? DATA.meta20Objetivos.registros : [];
+}
+function meta20ObjProximoId(){ return 'meta20obj_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+// Setor é a chave natural da meta — cadastrar de novo o mesmo Setor atualiza o
+// valor em vez de duplicar (mesma convenção do cadastro de NRAB).
+function meta20ObjUpsert(rec){
+  const lista = META20_OBJETIVOS.slice();
+  const idxMesmoSetorNoutroId = lista.findIndex(r => String(r.setor)===String(rec.setor) && r.id!==rec.id);
+  if(idxMesmoSetorNoutroId>=0){
+    lista[idxMesmoSetorNoutroId] = Object.assign({}, lista[idxMesmoSetorNoutroId], rec, {id: lista[idxMesmoSetorNoutroId].id});
+  } else {
+    const idxExistente = lista.findIndex(r => r.id===rec.id);
+    if(idxExistente>=0) lista[idxExistente] = Object.assign({}, lista[idxExistente], rec);
+    else lista.push(rec);
+  }
+  return publicarCampoDATA('meta20Objetivos', {registros: lista}, 'metas do Meta 20+', 'meta20-objetivos');
+}
+function meta20ObjDelete(id){
+  const lista = META20_OBJETIVOS.filter(r => r.id!==id);
+  return publicarCampoDATA('meta20Objetivos', {registros: lista}, 'metas do Meta 20+', 'meta20-objetivos');
+}
+
+function meta20ObjMsg(texto, tipo){
+  const el = document.getElementById('meta20-obj-form-msg');
+  if(!el) return;
+  el.textContent = texto || '';
+  el.className = 'nrab-msg' + (tipo==='erro' ? ' is-error' : tipo==='ok' ? ' is-ok' : '');
+}
+function meta20ObjResetForm(){
+  meta20ObjEditId = null;
+  const form = document.getElementById('meta20-obj-form');
+  if(form) form.reset();
+  document.getElementById('meta20-obj-form-title').textContent = 'Cadastrar Meta do Setor';
+  document.getElementById('meta20-obj-btn-salvar').textContent = 'Salvar Meta';
+  document.getElementById('meta20-obj-btn-cancelar').style.display = 'none';
+}
+function meta20ObjPreencherForm(rec){
+  meta20ObjEditId = rec.id;
+  document.getElementById('meta20-obj-form-title').textContent = `Editar Meta — Setor ${rec.setor}`;
+  document.getElementById('meta20-obj-input-setor').value = rec.setor;
+  document.getElementById('meta20-obj-input-vendedor').value = rec.vendedor || '';
+  document.getElementById('meta20-obj-input-valor').value = rec.objetivo;
+  document.getElementById('meta20-obj-btn-salvar').textContent = 'Atualizar Meta';
+  document.getElementById('meta20-obj-btn-cancelar').style.display = '';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function renderMeta20ObjTable(){
+  const wrap = document.getElementById('table-meta20-obj');
+  if(!wrap) return;
+  makeTable('table-meta20-obj', {
+    headers: [
+      {key:'setor', label:'Setor'},
+      {key:'vendedor', label:'Vendedor'},
+      {key:'objetivo', label:'Objetivo (R$/mês)', align:'right', format:fmtBRL0},
+      {key:'acoes', label:'', format:v=>v},
+    ],
+    rows: META20_OBJETIVOS,
+    getRow: r => ({
+      setor: r.setor, vendedor: r.vendedor || '—', objetivo: r.objetivo,
+      acoes: `<div class="nrab-actions-cell">
+        <button type="button" class="nrab-link-btn" data-meta20obj-edit="${esc(r.id)}">Editar</button>
+        <button type="button" class="nrab-link-btn is-danger" data-meta20obj-del="${esc(r.id)}">Excluir</button>
+      </div>`,
+    }),
+    searchable: true, pageSize: 10, defaultSort: {key:'setor', dir:'asc'},
+  });
+  if(!wrap._meta20Wired){
+    wrap.addEventListener('click', e => {
+      const editBtn = e.target.closest('[data-meta20obj-edit]');
+      if(editBtn){
+        const rec = META20_OBJETIVOS.find(r => r.id===editBtn.dataset.meta20objEdit);
+        if(rec) meta20ObjPreencherForm(rec);
+        return;
+      }
+      const delBtn = e.target.closest('[data-meta20obj-del]');
+      if(delBtn){
+        const rec = META20_OBJETIVOS.find(r => r.id===delBtn.dataset.meta20objDel);
+        if(!rec || meta20Publicando) return;
+        if(!confirm(`Excluir a meta do Setor ${rec.setor}? Vale para todos que acessam o link.`)) return;
+        meta20Publicando = true;
+        meta20ObjMsg('Publicando exclusão para todos…', '');
+        meta20ObjDelete(rec.id).then(r => {
+          meta20Publicando = false;
+          if(r.ok){
+            if(meta20ObjEditId===rec.id) meta20ObjResetForm();
+            meta20ObjMsg(`Meta do Setor ${rec.setor} excluída para todos.`, 'ok');
+          } else {
+            meta20ObjMsg(`Não consegui publicar a exclusão (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado.`, 'erro');
+          }
+          renderMeta20();
+        });
+      }
+    });
+    wrap._meta20Wired = true;
+  }
+}
+
+/* ---------------------- Motor de cálculo (ranking Top 20) ---------------------- */
+// "Hoje" define o mês atual/anterior e o trimestre (os 3 meses terminando no
+// mês anterior) — sempre recalculado ao vivo, nunca gravado no upload, para o
+// ranking continuar correto em qualquer mês/ano que a aba for aberta.
+function meta20Periodo(){
+  const hoje = new Date();
+  const soma = (y,m,n) => { let mm=m+n; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return {y,m:mm}; };
+  const atual = {y:hoje.getFullYear(), m:hoje.getMonth()+1};
+  const anterior = soma(atual.y, atual.m, -1);
+  const tri1 = anterior, tri3 = soma(atual.y, atual.m, -3);
+  const key = ym => ym.y + '-' + String(ym.m).padStart(2,'0');
+  return {
+    mesAtual: atual, mesAnterior: anterior,
+    mesAtualKey: key(atual), mesAnteriorKey: key(anterior),
+    triDeISO: key(tri3) + '-01', triAteLabel: key(tri1),
+  };
+}
+function meta20SomaNoMes(rows, sold, mesKey){
+  let soma = 0;
+  for(const r of rows){ if(r[2]===sold && r[3] && r[3].slice(0,7)===mesKey) soma += r[1]; }
+  return soma;
+}
+// Ranking dos 20 maiores clientes (por faturamento no trimestre) de uma chave
+// (Setor, nas visões BRN2/BRN8, ou Empresa, na visão Empresa) — espelha a
+// fórmula LET/FILTER/UNIQUE/SORTBY/INDEX do Excel, mas em duas passadas: soma
+// por Sold dentro do trimestre, depois ordena e pega os 20 primeiros.
+function meta20Ranking(rows, varejoRows, chaveSelecionada, periodo, objetivo){
+  const {triDeISO, mesAtualKey, mesAnteriorKey} = periodo;
+  const limiteSuperiorISO = mesAtualKey + '-01';
+  const emTrimestre = rows.filter(r => r[0]===chaveSelecionada && r[3] && r[3]>=triDeISO && r[3]<limiteSuperiorISO);
+  const somaPorSold = new Map();
+  emTrimestre.forEach(r => somaPorSold.set(r[2], (somaPorSold.get(r[2])||0) + r[1]));
+  const totalTrimestre = Array.from(somaPorSold.values()).reduce((s,v)=>s+v, 0);
+  const mediaTriChave = totalTrimestre/3;
+  const top20 = Array.from(somaPorSold.entries()).sort((a,b) => b[1]-a[1]).slice(0,20);
+
+  const linhas = top20.map(([sold, somaTri], idx) => {
+    const mediaTriCliente = somaTri/3;
+    const rep = mediaTriChave>0 ? mediaTriCliente/mediaTriChave : 0;
+    const metaCliente = objetivo*rep;
+    const mesAnteriorReal = meta20SomaNoMes(rows, sold, mesAnteriorKey);
+    const mesAtualReal = meta20SomaNoMes(rows, sold, mesAtualKey);
+    const varejoMesAtual = varejoRows ? meta20SomaNoMes(varejoRows, sold, mesAtualKey) : 0;
+    const saldo = metaCliente - mesAtualReal;
+    return {posicao: idx+1, sold, mediaTriCliente, rep, mesAnteriorReal, metaCliente, varejoMesAtual, mesAtualReal, saldo};
+  });
+  return {linhas, mediaTriChave, objetivo};
+}
+
+/* ---------------------- Datalist do Setor (cadastro de meta) ---------------------- */
+function renderMeta20SetorDatalist(){
+  const dl = document.getElementById('meta20-setor-list');
+  if(!dl) return;
+  const chaves = new Set([META20_CHAVE_EMPRESA]);
+  (DATA.baseVendas || []).forEach(r => { if(r[1]!=null) chaves.add(String(r[1])); });
+  dl.innerHTML = Array.from(chaves).sort().map(c => `<option value="${esc(c)}"></option>`).join('');
+}
+
+/* ---------------------- Seletor de Visão/Setor + tabela ---------------------- */
+// BRN8 só existe de fato para os Setores 505 e 510 — a pedido do usuário. As
+// vendas de BEBIDAS às vezes trazem outros Setores misturados (ex.: 502), que
+// não são BRN8 de verdade e não devem aparecer nem entrar nos totais dessa visão.
+const META20_SETORES_PERMITIDOS = { brn8: ['505','510'] }; // BRN2 e Empresa: sem restrição
+function meta20DadosDaVariante(variante){
+  const m20 = meta20Faturamento();
+  let rows, label;
+  if(variante==='brn8'){ rows = m20.brn8||[]; label = 'BRN8'; }
+  else if(variante==='empresa'){ rows = m20.empresa||[]; label = 'Empresa'; }
+  else { rows = m20.brn2||[]; label = 'BRN2'; }
+  const permitidos = META20_SETORES_PERMITIDOS[variante];
+  if(permitidos) rows = rows.filter(r => permitidos.includes(String(r[0])));
+  return {rows, label};
+}
+function renderMeta20SetorSelect(){
+  const variante = (document.getElementById('meta20-select-variante')||{}).value || 'brn2';
+  const sel = document.getElementById('meta20-select-setor');
+  if(!sel) return;
+  const {rows} = meta20DadosDaVariante(variante);
+  const chaves = Array.from(new Set(rows.map(r => r[0]).filter(v => v!=null))).sort();
+  const atual = chaves.includes(sel.value) ? sel.value : '';
+  sel.innerHTML = '<option value="">Selecione…</option>' + chaves.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  sel.value = atual;
+}
+
+function meta20ClienteMeta(sold){
+  const linhas = (DATA.meta20 && DATA.meta20.clientes) || [];
+  for(const r of linhas){ if(String(r[0])===sold) return {razaoSocial:r[1], setor:r[2]}; }
+  for(const r of (DATA.clientes || [])){ if(String(r[0])===sold) return {razaoSocial:r[1], setor:r[2]}; }
+  return {razaoSocial:null, setor:null};
+}
+function meta20VisitaMeta(sold){
+  const linhas = (DATA.meta20 && DATA.meta20.visitas) || [];
+  for(const r of linhas){ if(String(r[0])===sold) return {visita:r[1], ciclo:r[2]}; }
+  return {visita:null, ciclo:null};
+}
+
+function renderMeta20Tabela(){
+  const hint = document.getElementById('meta20-empty-hint');
+  const wrap = document.getElementById('meta20-wrap');
+  if(!hint || !wrap) return;
+  const variante = (document.getElementById('meta20-select-variante')||{}).value || 'brn2';
+  const setorSel = (document.getElementById('meta20-select-setor')||{}).value || '';
+  const {rows, label} = meta20DadosDaVariante(variante);
+  const temDados = rows.length>0;
+
+  if(!temDados || !setorSel){
+    wrap.style.display = 'none'; hint.style.display = '';
+    hint.textContent = !temDados
+      ? 'Envie a planilha de Vendas para ver o ranking.'
+      : 'Selecione um Setor (ou Empresa) para ver o ranking.';
+    return;
+  }
+  hint.style.display = 'none'; wrap.style.display = '';
+
+  const periodo = meta20Periodo();
+  const objetivoRec = META20_OBJETIVOS.find(r => String(r.setor)===String(setorSel));
+  const objetivo = objetivoRec ? Number(objetivoRec.objetivo)||0 : 0;
+  const varejoRows = meta20Faturamento().varejo;
+  const {linhas, mediaTriChave} = meta20Ranking(rows, varejoRows, setorSel, periodo, objetivo);
+
+  document.getElementById('meta20-panel-sub').textContent =
+    `Visão ${label} · Setor/Empresa ${setorSel} · trimestre até ${periodo.triAteLabel} · mês de referência ${periodo.mesAtualKey}` +
+    (objetivoRec ? '' : ' · ⚠️ nenhuma meta cadastrada para este Setor — Meta/Saldo ficam zerados.');
+
+  const totalMeta = linhas.reduce((s,l)=>s+l.metaCliente, 0);
+  const totalRealizado = linhas.reduce((s,l)=>s+l.mesAtualReal, 0);
+  const totalSaldo = linhas.reduce((s,l)=>s+l.saldo, 0);
+  renderKPIs('kpi-meta20', [
+    {label:'Média Trimestre (Setor/Empresa)', value: fmtBRL0(mediaTriChave)},
+    {label:'Meta do Setor/Empresa', value: fmtBRL0(objetivo)},
+    {label:'Meta dos Top 20 (soma)', value: fmtBRL0(totalMeta)},
+    {label:'Realizado no mês (Top 20)', value: fmtBRL0(totalRealizado)},
+    {label:'Saldo (Top 20)', value: fmtBRL0(totalSaldo), tone: totalSaldo<=0 ? 'good' : 'warning'},
+  ]);
+
+  makeTable('table-meta20', {
+    headers: [
+      {key:'posicao', label:'Posição', align:'right'},
+      {key:'sold', label:'Sold'},
+      {key:'razaoSocial', label:'Razão Social'},
+      {key:'visita', label:'Visita'},
+      {key:'ciclo', label:'Ciclo'},
+      {key:'mediaTriCliente', label:'Média Trimestre', align:'right', format:fmtBRL0},
+      {key:'rep', label:'Rep%', align:'right', format:fmtPct},
+      {key:'mesAnteriorReal', label:'Mês Anterior', align:'right', format:fmtBRL0},
+      {key:'metaCliente', label:'Meta', align:'right', format:fmtBRL0},
+      {key:'varejoMesAtual', label:'Varejo (mês atual)', align:'right', format:fmtBRL0},
+      {key:'mesAtualReal', label:'Realizado (mês atual)', align:'right', format:fmtBRL0},
+      {key:'saldo', label:'Saldo', align:'right', format:fmtBRL0},
+    ],
+    rows: linhas,
+    getRow: l => {
+      const cli = meta20ClienteMeta(l.sold), vis = meta20VisitaMeta(l.sold);
+      return Object.assign({}, l, {razaoSocial: cli.razaoSocial || '—', visita: vis.visita ?? '—', ciclo: vis.ciclo || '—'});
+    },
+    searchable: true, pageSize: 20, defaultSort: {key:'posicao', dir:'asc'},
+  });
+}
+
+function renderMeta20(){
+  meta20SyncFromData();
+  renderMeta20SetorDatalist();
+  renderMeta20ObjTable();
+  renderMeta20SetorSelect();
+  renderMeta20Tabela();
+}
+
+function meta20BuscarVendedorPorSetor(setor){
+  const lista = (DATA.meta20 && DATA.meta20.vendedoresPorSetor) || [];
+  for(const [s,v] of lista){ if(String(s)===String(setor)) return v; }
+  return null;
+}
+
+// Preenche o campo Vendedor sozinho ao digitar/escolher o Setor (dado que já
+// vem na planilha de Vendas, aba "BASE"). Só sobrescreve o campo se ele estiver
+// vazio ou ainda contiver o último valor preenchido automaticamente — assim,
+// se a pessoa editar o nome à mão, essa edição não é apagada depois.
+let meta20VendedorAutoValor = '';
+function meta20AutoPreencherVendedor(){
+  const setorInput = document.getElementById('meta20-obj-input-setor');
+  const vendedorInput = document.getElementById('meta20-obj-input-vendedor');
+  if(!setorInput || !vendedorInput) return;
+  const encontrado = meta20BuscarVendedorPorSetor(setorInput.value.trim());
+  if(encontrado==null) return;
+  if(vendedorInput.value.trim()==='' || vendedorInput.value===meta20VendedorAutoValor){
+    vendedorInput.value = encontrado;
+    meta20VendedorAutoValor = encontrado;
+  }
+}
+
+function initMeta20(){
+  const form = document.getElementById('meta20-obj-form');
+  if(!form) return; // aba não presente neste HTML — módulo fica inerte
+  const setorInput = document.getElementById('meta20-obj-input-setor');
+  setorInput.addEventListener('input', meta20AutoPreencherVendedor);
+  setorInput.addEventListener('change', meta20AutoPreencherVendedor);
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    if(meta20Publicando) return;
+    const setor = document.getElementById('meta20-obj-input-setor').value.trim();
+    const vendedor = document.getElementById('meta20-obj-input-vendedor').value.trim();
+    const objetivo = Number(document.getElementById('meta20-obj-input-valor').value);
+    if(!setor || !(objetivo>0)){
+      meta20ObjMsg('Preencha o Setor e um Objetivo maior que zero.', 'erro');
+      return;
+    }
+    const rec = {id: meta20ObjEditId || meta20ObjProximoId(), setor, vendedor, objetivo};
+    meta20Publicando = true;
+    const btn = document.getElementById('meta20-obj-btn-salvar');
+    if(btn) btn.disabled = true;
+    meta20ObjMsg('Publicando meta para todos…', '');
+    meta20ObjUpsert(rec).then(r => {
+      meta20Publicando = false;
+      if(btn) btn.disabled = false;
+      if(r.ok){
+        meta20ObjMsg(`Meta do Setor ${setor} salva e publicada para todos.`, 'ok');
+        meta20ObjResetForm();
+      } else {
+        meta20ObjMsg(`Não consegui publicar (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado. Tente de novo.`, 'erro');
+      }
+      renderMeta20();
+    });
+  });
+  document.getElementById('meta20-obj-btn-cancelar').addEventListener('click', () => { meta20ObjResetForm(); meta20ObjMsg('', ''); });
+  document.getElementById('meta20-select-variante').addEventListener('change', () => { renderMeta20SetorSelect(); renderMeta20Tabela(); });
+  document.getElementById('meta20-select-setor').addEventListener('change', renderMeta20Tabela);
+  RENDERERS.meta20 = renderMeta20;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -3045,6 +3909,8 @@ function init(){
   buildFilterBar('cobertura','cli2','cli2');
   buildFilterBar('painel','painelvend','painelvend');
   initMapaVenda();
+  initNrab();
+  initMeta20();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

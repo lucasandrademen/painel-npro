@@ -10,15 +10,15 @@
 //                                     ninguém publicou, o snapshot original de
 //                                     /data/snapshot.json)
 //   GET  /api/snapshot?historico=1  -> a lista de versões já publicadas
-//   POST /api/snapshot              -> publica uma nova versão (exige senha)
-//   POST /api/snapshot {restaurar}  -> volta para uma versão anterior (exige senha)
+//   POST /api/snapshot              -> publica uma nova versão
+//   POST /api/snapshot {restaurar}  -> volta para uma versão anterior
 //
 // Nada é apagado: cada publicação guarda a versão anterior em historico/, então
-// dá para voltar atrás. A senha fica na variável de ambiente
-// PAINEL_SENHA_PUBLICACAO (Vercel > Settings > Environment Variables).
+// dá para voltar atrás. Não há senha nem outra checagem de quem pode publicar —
+// qualquer pessoa com o link do painel pode enviar uma nova versão (a pedido do
+// usuário do projeto).
 // ============================================================================
 import { get, put, list, head } from '@vercel/blob';
-import { timingSafeEqual } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 
 const ATUAL = 'snapshot.json';
@@ -32,15 +32,6 @@ function json(res, status, body, extraHeaders) {
   res.setHeader('Cache-Control', 'no-store');
   Object.entries(extraHeaders || {}).forEach(([k, v]) => res.setHeader(k, v));
   res.end(JSON.stringify(body));
-}
-
-function senhaConfere(recebida) {
-  const esperada = process.env.PAINEL_SENHA_PUBLICACAO || '';
-  if (!esperada) return { ok: false, motivo: 'sem_senha_configurada' };
-  const a = Buffer.from(String(recebida || ''), 'utf8');
-  const b = Buffer.from(esperada, 'utf8');
-  if (a.length !== b.length) return { ok: false, motivo: 'senha_invalida' };
-  return { ok: timingSafeEqual(a, b), motivo: 'senha_invalida' };
 }
 
 // O runtime da Vercel pode já ter lido o corpo por conta própria (req.body) —
@@ -156,15 +147,6 @@ async function lidarGet(req, res) {
 }
 
 async function lidarPost(req, res) {
-  const teste = senhaConfere(req.headers['x-painel-senha']);
-  if (!teste.ok) {
-    await new Promise(r => setTimeout(r, 400)); // desacelera tentativa em série
-    if (teste.motivo === 'sem_senha_configurada') {
-      return json(res, 503, { erro: 'A senha de publicação não está configurada no projeto (PAINEL_SENHA_PUBLICACAO).' });
-    }
-    return json(res, 401, { erro: 'Senha de publicação incorreta.' });
-  }
-
   let corpo;
   try {
     const buf = await lerCorpo(req, 4 * 1024 * 1024);

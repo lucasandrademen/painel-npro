@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=3">
+<link rel="stylesheet" href="assets/app.css?v=4">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -308,6 +308,148 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="nrab">
+    <div class="section-title">Acompanhamento de NRABs</div>
+    <div class="section-note">
+      Compara, para cada cliente/SKU em ação de NRAB (compra X, leva Y), o volume vendido nos 3 meses
+      anteriores ao início da ação contra o realizado durante a ação. O cadastro de NRABs fica num campo
+      <b>separado</b> da base de Vendas — nunca altera o histórico enviado pelos botões Enviar Estoque/Enviar
+      Vendas — mas é <b>publicado para todos</b> que abrirem o link, assim que você salva.
+    </div>
+
+    <div class="panel nrab-panel">
+      <h3 id="nrab-form-title">Cadastrar NRAB</h3>
+      <div class="panel-sub">SOLD + SKU identificam a ação. Cadastrar de novo o mesmo par SOLD+SKU atualiza a regra existente em vez de duplicar.</div>
+      <form id="nrab-form" class="nrab-form">
+        <div class="nrab-field">
+          <span class="flabel">SOLD</span>
+          <input type="text" id="nrab-input-sold" inputmode="numeric" placeholder="Ex.: 4344203" list="nrab-sold-list" autocomplete="off" required>
+          <datalist id="nrab-sold-list"></datalist>
+        </div>
+        <div class="nrab-field">
+          <span class="flabel">SKU</span>
+          <input type="text" id="nrab-input-sku" placeholder="Ex.: 12153428" list="nrab-sku-list" autocomplete="off" required>
+          <datalist id="nrab-sku-list"></datalist>
+        </div>
+        <div class="nrab-field">
+          <span class="flabel">Início da ação</span>
+          <input type="date" id="nrab-input-data" required>
+        </div>
+        <div class="nrab-field nrab-field-narrow">
+          <span class="flabel">Compra</span>
+          <input type="number" id="nrab-input-compra" min="1" step="1" placeholder="2" required>
+        </div>
+        <div class="nrab-field nrab-field-narrow">
+          <span class="flabel">Leva</span>
+          <input type="number" id="nrab-input-leva" min="1" step="1" placeholder="3" required>
+        </div>
+        <div class="nrab-field">
+          <span class="flabel">Status</span>
+          <select id="nrab-input-status">
+            <option value="Ativa">Ativa</option>
+            <option value="Pausada">Pausada</option>
+            <option value="Encerrada">Encerrada</option>
+          </select>
+        </div>
+        <div class="nrab-field-actions">
+          <button type="submit" class="mapa-search-btn" id="nrab-btn-salvar">Salvar NRAB</button>
+          <button type="button" class="nrab-btn-secundario" id="nrab-btn-cancelar" style="display:none;">Cancelar edição</button>
+        </div>
+      </form>
+      <div class="nrab-msg" id="nrab-form-msg"></div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <h3>NRABs cadastradas</h3>
+      <div class="panel-sub">Edite ou exclua uma regra a qualquer momento — o acompanhamento abaixo recalcula sozinho.</div>
+      <div id="table-nrab-cadastro"></div>
+    </div>
+
+    <div class="mapa-lookup" style="margin-top:18px;">
+      <div>
+        <span class="flabel">Cliente (SOLD)</span>
+        <select id="nrab-select-sold"><option value="">Selecione um cliente…</option></select>
+      </div>
+      <div class="mapa-field">
+        <span class="flabel">Razão Social</span>
+        <span class="mapa-field-value" id="nrab-razao-value">—</span>
+      </div>
+    </div>
+    <div id="nrab-empty-hint" class="mapa-empty-hint">Cadastre uma NRAB acima e selecione o cliente para ver o acompanhamento.</div>
+    <div id="nrab-acompanhamento-wrap" style="display:none;">
+      <div class="kpi-row" id="kpi-nrab"></div>
+      <div class="panel">
+        <h3>SKUs em NRAB do cliente</h3>
+        <div class="panel-sub">Mês -3/-2/-1 e Mês da ação mostram unidades vendidas no mês; "No período da ação" soma tudo desde o início da NRAB até a última venda disponível.</div>
+        <div id="table-nrab-skus"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-tab="meta20">
+    <div class="section-title">Meta vs. 20+ (BRN2 / BRN8 / Empresa)</div>
+    <div class="section-note">
+      Ranking dos 20 maiores clientes por Setor (ou da Empresa toda), comparando a meta do Setor — dividida entre os
+      clientes pela representatividade de cada um no faturamento do trimestre — contra o realizado no mês. O faturamento
+      sai automaticamente da planilha enviada em <b>Enviar Vendas</b> (BRN2 = NPRO + Varejo, BRN8 = Bebidas, Empresa =
+      tudo); a meta de cada Setor é cadastrada abaixo e publicada para todos.
+    </div>
+
+    <div class="panel meta20-panel">
+      <h3 id="meta20-obj-form-title">Cadastrar Meta do Setor</h3>
+      <div class="panel-sub">Setor identifica a meta. Cadastrar de novo o mesmo Setor atualiza o valor em vez de duplicar. Para a visão "Empresa", use o mesmo código de Empresa que aparece no arquivo enviado (ex.: 1).</div>
+      <form id="meta20-obj-form" class="nrab-form">
+        <div class="nrab-field">
+          <span class="flabel">Setor</span>
+          <input type="text" id="meta20-obj-input-setor" inputmode="numeric" placeholder="Ex.: 510" list="meta20-setor-list" autocomplete="off" required>
+          <datalist id="meta20-setor-list"></datalist>
+        </div>
+        <div class="nrab-field">
+          <span class="flabel">Vendedor</span>
+          <input type="text" id="meta20-obj-input-vendedor" placeholder="Ex.: Elisson Pio Barbosa">
+        </div>
+        <div class="nrab-field">
+          <span class="flabel">Objetivo (R$/mês)</span>
+          <input type="number" id="meta20-obj-input-valor" min="0" step="0.01" placeholder="171513.58" required>
+        </div>
+        <div class="nrab-field-actions">
+          <button type="submit" class="mapa-search-btn" id="meta20-obj-btn-salvar">Salvar Meta</button>
+          <button type="button" class="nrab-btn-secundario" id="meta20-obj-btn-cancelar" style="display:none;">Cancelar edição</button>
+        </div>
+      </form>
+      <div class="nrab-msg" id="meta20-obj-form-msg"></div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <h3>Metas cadastradas</h3>
+      <div id="table-meta20-obj"></div>
+    </div>
+
+    <div class="mapa-lookup" style="margin-top:18px;">
+      <div>
+        <span class="flabel">Visão</span>
+        <select id="meta20-select-variante">
+          <option value="brn2">BRN2</option>
+          <option value="brn8">BRN8</option>
+          <option value="empresa">Empresa</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="meta20-select-setor"><option value="">Selecione…</option></select>
+      </div>
+    </div>
+    <div id="meta20-empty-hint" class="mapa-empty-hint">Envie a planilha de Vendas, cadastre a meta do Setor acima e selecione a visão/Setor para ver o ranking.</div>
+    <div id="meta20-wrap" style="display:none;">
+      <div class="kpi-row" id="kpi-meta20"></div>
+      <div class="panel">
+        <h3>Top 20 clientes</h3>
+        <div class="panel-sub" id="meta20-panel-sub">Trimestre e mês recalculados automaticamente a partir da data de hoje.</div>
+        <div id="table-meta20"></div>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -337,6 +479,6 @@
 </div>
 
 
-<script src="assets/app.js?v=3" defer></script>
+<script src="assets/app.js?v=13" defer></script>
 </body>
 </html>
