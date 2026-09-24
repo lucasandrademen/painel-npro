@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=4">
+<link rel="stylesheet" href="assets/app.css?v=5">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -450,6 +450,81 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="semcompra">
+    <div class="section-title">Clientes sem Compra</div>
+    <div class="section-note">
+      Clientes da carteira de cada vendedor que ainda não compraram no mês. A carteira sai da aba <b>BASE</b> da planilha
+      enviada em <b>Enviar Vendas</b> e muda com o roteiro: um cliente só entra se tiver visita programada no período
+      (dia de visita + quinzena do ciclo). Depois ela é cruzada, pelo Sold, com as vendas do mês — do dia 1º até a data
+      final. Esta aba usa o próprio período abaixo, não o "Período analisado" do topo.
+    </div>
+
+    <div class="filterbar" id="sc-filtros">
+      <div>
+        <span class="flabel">Supervisor</span>
+        <select id="sc-supervisor"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">Vendedor</span>
+        <select id="sc-vendedor"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">De</span>
+        <input type="date" id="sc-de" aria-label="Início do período">
+      </div>
+      <div>
+        <span class="flabel">Até</span>
+        <input type="date" id="sc-ate" aria-label="Fim do período">
+      </div>
+      <div>
+        <span class="flabel">Quinzena (ciclo)</span>
+        <select id="sc-quinzena">
+          <option value="">(Todas)</option>
+          <option value="13">Semanas 1 e 3</option>
+          <option value="24">Semanas 2 e 4</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Dia de visita</span>
+        <select id="sc-dia">
+          <option value="">(Todos)</option>
+          <option value="1">Segunda</option>
+          <option value="2">Terça</option>
+          <option value="3">Quarta</option>
+          <option value="4">Quinta</option>
+          <option value="5">Sexta</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Cliente</span>
+        <input type="text" id="sc-cliente" placeholder="Sold ou razão social" autocomplete="off">
+      </div>
+      <button class="filter-reset" id="sc-reset" type="button">Limpar filtros</button>
+    </div>
+    <div class="sc-atalhos">
+      <span class="flabel">Período rápido:</span>
+      <button type="button" class="sc-atalho" data-sc-atalho="mes">Mês atual</button>
+      <button type="button" class="sc-atalho" data-sc-atalho="semana">Semana atual</button>
+      <button type="button" class="sc-atalho" data-sc-atalho="hoje">Hoje</button>
+      <span class="sc-semana-info" id="sc-semana-info"></span>
+    </div>
+
+    <div id="sc-hint" class="mapa-empty-hint" style="display:none;"></div>
+    <div id="sc-wrap" style="display:none;">
+      <div class="kpi-row" id="kpi-semcompra"></div>
+      <div class="panel">
+        <h3>Clientes sem compra</h3>
+        <div class="panel-sub" id="sc-sub"></div>
+        <div id="table-semcompra"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Resumo por vendedor</h3>
+        <div class="panel-sub">Mesma carteira e período dos filtros acima.</div>
+        <div id="table-semcompra-vend"></div>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -479,6 +554,6 @@
 </div>
 
 
-<script src="assets/app.js?v=13" defer></script>
+<script src="assets/app.js?v=14" defer></script>
 </body>
 </html>

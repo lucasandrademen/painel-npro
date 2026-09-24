@@ -86,6 +86,7 @@ const TABS = [
   {id:"mapa", label:"Mapa da Venda"},
   {id:"nrab", label:"Acompanhamento NRAB"},
   {id:"meta20", label:"Meta 20+"},
+  {id:"semcompra", label:"Clientes sem Compra"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2178,15 +2179,19 @@ async function applyVendasUpload(buf){
 
   const crossRows = clientes.map(c => [c[0], c[1], c[2], 'Não','Não',0,0,0,'Sem compras no período','-']);
 
-  // Meta 20+: cadastro de clientes/visitas da aba BASE (o faturamento sai de
-  // baseVendas). Sem a aba, mantém o cadastro que já estava carregado.
-  const baseMeta20 = await parseMeta20BaseSheet(wb, buf, zipEntries);
+  // Meta 20+ e Clientes sem Compra: cadastro de clientes/visitas e carteira da
+  // aba BASE (o faturamento sai de baseVendas). Sem a aba, mantém o que já
+  // estava carregado.
+  const baseGrid = await lerGridAbaBase(wb, buf, zipEntries);
+  const baseMeta20 = parseMeta20BaseSheet(baseGrid);
   const meta20 = baseMeta20 || (DATA.meta20 ? {
     clientes: DATA.meta20.clientes || [], visitas: DATA.meta20.visitas || [], vendedoresPorSetor: DATA.meta20.vendedoresPorSetor || [],
   } : {clientes: [], visitas: [], vendedoresPorSetor: []});
 
+  const carteira = parseCarteiraBase(baseGrid) || DATA.carteira || null;
+
   const newData = Object.assign({}, DATA, {
-    vendedores, periodoPadrao, baseVendas, clientes, meta20,
+    vendedores, periodoPadrao, baseVendas, clientes, meta20, carteira,
     sku: { headers: DATA.sku.headers, rows: skuRows },
     cross: { headers: DATA.cross.headers, rows: crossRows },
   });
@@ -2198,6 +2203,7 @@ async function applyVendasUpload(buf){
       vendasLinhas: baseVendas.length, skusVendidos: skusVendidosSet.size,
       skusSemGrupoOrigem: skusSemGrupoOrigem.size, skusSemGrupoOrigemList: Array.from(skusSemGrupoOrigem),
       clientes: clientes.length, vendedores: vendedores.length,
+      carteira: baseMeta20 && carteira ? carteira.rows.length : null,
     },
     periodo: periodoPadrao,
   };
@@ -2220,6 +2226,7 @@ function logImportDiagnostics(diag){
     console.log('SKUs sem Grupo->Origem mapeado (CATEGORIA NPRO/BEBIDAS, classificados como Varejo):', diag.counts.skusSemGrupoOrigem, diag.counts.skusSemGrupoOrigemList);
     console.log('Clientes (SOLD únicos):', diag.counts.clientes);
     console.log('Vendedores (códigos, excl. 506):', diag.counts.vendedores);
+    console.log('Carteira (aba BASE, Sold+Setor):', diag.counts.carteira);
     console.log('Período padrão:', diag.periodo);
   }
   console.log(diag.ok ? '✅ PRONTO PARA ATUALIZAR' : '❌ NÃO PRONTO');
@@ -2284,6 +2291,7 @@ function buildSummaryModal(diag, filename, onConfirm, onCancel){
         <div>SKUs vendidos: <b>${diag.counts.skusVendidos}</b></div>
         <div>Clientes (SOLD únicos): <b>${diag.counts.clientes}</b></div>
         <div>Vendedores: <b>${diag.counts.vendedores}</b></div>
+        <div>Carteira (aba BASE): <b>${diag.counts.carteira!=null ? diag.counts.carteira + ' clientes' : 'não encontrada'}</b></div>
       </div>
       <div style="margin-top:10px;font-size:12.5px;color:var(--text-muted);">
         Período identificado: <b>${diag.periodo.inicio ? esc(diag.periodo.inicio.split('-').reverse().join('/')) : '—'} a ${diag.periodo.fim ? esc(diag.periodo.fim.split('-').reverse().join('/')) : '—'}</b>
@@ -2704,6 +2712,29 @@ const PRINT_CONFIG = {
       const wrap = document.getElementById('nrab-acompanhamento-wrap');
       const visivel = wrap && wrap.style.display !== 'none';
       return visivel ? null : 'Selecione, na lista de clientes, um SOLD com NRAB cadastrada antes de imprimir — o relatório desta aba é sempre de um cliente.';
+    },
+  },
+  semcompra: {
+    title:'Clientes sem Compra', orientation:'landscape', kpi:'kpi-semcompra', blocks:[], hideFilters:true,
+    tables:[{id:'table-semcompra', title:'Clientes sem compra'}, {id:'table-semcompra-vend', title:'Resumo por vendedor'}],
+    periodLabel: () => {
+      const f = scLerFiltros();
+      return `carteira com visita de ${fmtDateBR(f.deMs)} a ${fmtDateBR(f.ateMs)}`;
+    },
+    headerExtra: () => {
+      const f = scLerFiltros();
+      const chips = [];
+      if(f.supervisor) chips.push(['Supervisor', scSupervisorLabel(f.supervisor)]);
+      if(f.vendedor) chips.push(['Vendedor', scVendedorLabel(f.vendedor)]);
+      if(f.quinzena) chips.push(['Quinzena', f.quinzena==='13' ? 'Semanas 1 e 3' : 'Semanas 2 e 4']);
+      if(f.dia) chips.push(['Dia de visita', SC_DIAS[f.dia]]);
+      if(f.cliente) chips.push(['Cliente', f.cliente]);
+      if(!chips.length) chips.push(['Filtros', 'Carteira completa']);
+      return '<div class="print-filters-row">' + chips.map(([k,v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
+    },
+    guard: () => {
+      const wrap = document.getElementById('sc-wrap');
+      return wrap && wrap.style.display !== 'none' ? null : 'Carregue a carteira (planilha de Vendas) e informe um período válido antes de imprimir.';
     },
   },
   meta20: {
@@ -3495,13 +3526,15 @@ const META20_CHAVE_EMPRESA = '1'; // código da Empresa usado no cadastro de met
 // cliente, usamos a coluna logo depois de "Razão Social"; e para o par
 // Setor->Vendedor usamos a coluna logo ANTES de "Vendedor" (nome que só
 // aparece uma vez com essa grafia, esse é confiável).
-async function parseMeta20BaseSheet(wb, buf, zipEntries){
-  const vazio = null;
+async function lerGridAbaBase(wb, buf, zipEntries){
   const realName = findSheetName(wb, 'BASE');
-  if(!realName) return vazio;
-  let grid;
-  try { grid = await getSheetGridRobust(wb, buf, zipEntries, realName); }
-  catch(e){ return vazio; }
+  if(!realName) return null;
+  try { return await getSheetGridRobust(wb, buf, zipEntries, realName); }
+  catch(e){ return null; }
+}
+function parseMeta20BaseSheet(grid){
+  const vazio = null;
+  if(!grid) return vazio;
   const headerRow = findHeaderRowByAnchor(grid, 'Sold', 8);
   if(!headerRow) return vazio;
   const map = headerIndexMap(grid, headerRow);
@@ -3895,6 +3928,372 @@ function initMeta20(){
   RENDERERS.meta20 = renderMeta20;
 }
 
+/* ============================================================================
+   CLIENTES SEM COMPRA — módulo isolado
+   ----------------------------------------------------------------------------
+   Carteira válida do período → clientes que compraram no mês → quem da
+   carteira ainda não comprou = Clientes sem Compra.
+   A carteira vem da aba "BASE" da planilha de Vendas (DATA.carteira: Sold,
+   Setor, Dia de Visita, Ciclo, Supervisor, cidade/canal do cadastro). Um
+   cliente só entra na carteira do período se tiver pelo menos UMA visita
+   programada dentro dele: dia da semana = "Dia de Visita" (1=segunda …
+   5=sexta) e semana dentro do "Ciclo".
+   O ciclo NÃO é a semana do mês: é um rodízio contínuo de 4 semanas
+   (semanas 1-2-3-4-1-2…, de segunda a domingo) — "1 3" e "2 4" são as duas
+   quinzenas alternadas, "1234" é toda semana. A âncora (semana de
+   14/09/2026 = semana 1) foi tirada das próprias vendas: em 2026 ~80% dos
+   pedidos feitos no dia de visita do cliente caem numa semana do ciclo dele
+   por esta regra, contra ~20% pela regra oposta; "semana do mês" não bate.
+   Compra = faturamento > 0 do mesmo Sold no mesmo Setor (o mesmo cliente
+   pode estar na carteira de dois vendedores, um em Food e outro em Bebidas),
+   do dia 1º do mês da data inicial até a data final.
+   ========================================================================= */
+
+// A planilha de Vendas só traz o código do supervisor; o nome vem da aba
+// "SEM COMPRAS DIARIO" da planilha "CLIENTES S-COMPRA PROFESSIONAL".
+const SC_SUPERVISOR_NOMES = { '500': 'MATHEUS MEDEIROS OLIVEIRA' };
+const SC_DIAS = {1:'Segunda', 2:'Terça', 3:'Quarta', 4:'Quinta', 5:'Sexta'};
+const SC_DIA_MS = 86400000;
+const SC_STATUS_STYLE = {
+  'SEM COMPRA NO MÊS': ['var(--warning-bg)','var(--warning-ink)'],
+  'SEM COMPRA HÁ +90 DIAS': ['var(--critical-bg)','var(--critical-ink)'],
+  'NUNCA COMPROU': ['var(--nogyro-bg)','var(--nogyro)'],
+};
+const SC_CARTEIRA_HEADERS = ['Sold','Setor','Razão Social','Dia de Visita','Ciclo','Supervisor','Cidade','Bairro','Canal','Telefone'];
+
+/* ---------------------- Upload de Vendas: carteira da aba BASE ---------------------- */
+// Bloco da direita (Sold/Razão Social/Setor/Dia de Visita/Ciclo/Supervisor) =
+// carteira dos vendedores Professional, uma linha por Sold+Setor (a aba repete
+// linhas — guardamos a primeira). Bloco da esquerda (COD.CLIENTE, cadastro de
+// todos os clientes) completa cidade, bairro, canal e telefone pelo Sold.
+// Mesma questão de cabeçalhos repetidos do Meta 20+: headerIndexMap guarda a
+// última coluna de cada nome, então "Setor" do cliente é a coluna logo depois
+// de "Razão Social".
+function parseCarteiraBase(grid){
+  if(!grid) return null;
+  const headerRow = findHeaderRowByAnchor(grid, 'Sold', 8);
+  if(!headerRow) return null;
+  const map = headerIndexMap(grid, headerRow);
+  const cSold = optCol(map,'Sold'); if(!cSold) return null;
+  const cRazao = optCol(map,'Razão Social');
+  const cSetor = cRazao ? cRazao+1 : null; if(!cSetor) return null;
+  const cDia = optCol(map,'Dia de Visita'), cCiclo = optCol(map,'Ciclo'), cSup = optCol(map,'Supervisor');
+  const cCod = optCol(map,'COD.CLIENTE'), cCidade = optCol(map,'CIDADE'), cBairro = optCol(map,'BAIRRO');
+  const cCanal = optCol(map,'DESC.CATEGORIA'), cDdd = optCol(map,'DDD'), cFone = optCol(map,'TELEFONE');
+
+  const cadastro = new Map(); // COD.CLIENTE -> {cidade, bairro, canal, telefone}
+  if(cCod){
+    let blank = 0;
+    for(let r=headerRow+1; r<=grid.length && blank<15; r++){
+      const cod = ocell(grid,r,cCod);
+      if(cod==null){ blank++; continue; }
+      blank = 0;
+      const k = String(cod);
+      if(cadastro.has(k)) continue;
+      const ddd = cDdd ? ocell(grid,r,cDdd) : null, fone = cFone ? ocell(grid,r,cFone) : null;
+      cadastro.set(k, {
+        cidade: cCidade ? ocell(grid,r,cCidade) : null,
+        bairro: cBairro ? ocell(grid,r,cBairro) : null,
+        canal: cCanal ? ocell(grid,r,cCanal) : null,
+        telefone: fone!=null && String(fone)!=='0' ? (ddd!=null ? '(' + ddd + ') ' + fone : String(fone)) : null,
+      });
+    }
+  }
+
+  const rows = [];
+  const vistos = new Set();
+  let blank = 0;
+  for(let r=headerRow+1; r<=grid.length && blank<15; r++){
+    const soldV = ocell(grid,r,cSold);
+    if(soldV==null){ blank++; continue; }
+    blank = 0;
+    const sold = String(soldV);
+    const setorV = ocell(grid,r,cSetor);
+    const setor = setorV!=null ? String(setorV) : null;
+    if(!setor || setor==='506') continue; // vendedor removido por completo (regra do projeto)
+    const chave = sold + '|' + setor;
+    if(vistos.has(chave)) continue;
+    vistos.add(chave);
+    const cad = cadastro.get(sold) || {};
+    const supV = cSup ? ocell(grid,r,cSup) : null;
+    rows.push([sold, setor, cRazao ? ocell(grid,r,cRazao) : null,
+      scNormalizarDia(cDia ? ocell(grid,r,cDia) : null), scNormalizarCiclo(cCiclo ? ocell(grid,r,cCiclo) : null),
+      supV!=null ? String(supV) : null, cad.cidade||null, cad.bairro||null, cad.canal||null, cad.telefone||null]);
+  }
+  return {headers: SC_CARTEIRA_HEADERS, rows};
+}
+// "Dia de Visita" vem como 1..5; alguns clientes têm lixo (7, datas) — sem dia fixo.
+function scNormalizarDia(v){
+  const n = typeof v==='number' ? v : Number(String(v==null?'':v).trim());
+  return (Number.isInteger(n) && n>=1 && n<=5) ? n : null;
+}
+// "Ciclo" vem como "1234", "1 3", " 2 4" — guardamos só os dígitos das semanas.
+function scNormalizarCiclo(v){
+  const s = v==null ? '' : String(v).replace(/[^1-4]/g,'');
+  return s || null;
+}
+
+/* ---------------------- Carteira + histórico de compras (derivados de DATA) ---------------------- */
+// Sem DATA.carteira (snapshot publicado antes desta aba existir), monta uma
+// carteira provisória com o que o Meta 20+ já guardou da aba BASE — sem
+// cidade/canal/supervisor, até a próxima planilha de Vendas.
+let _scCache = {fonteCarteira: undefined, fonteVendas: null, carteira: [], compras: new Map(), provisoria: false};
+function scDados(){
+  const fonteCarteira = DATA.carteira || DATA.meta20 || null;
+  const fonteVendas = DATA.baseVendas || [];
+  if(_scCache.fonteCarteira===fonteCarteira && _scCache.fonteVendas===fonteVendas) return _scCache;
+
+  let rows = [], provisoria = false;
+  if(DATA.carteira && Array.isArray(DATA.carteira.rows)){
+    rows = DATA.carteira.rows;
+  } else if(DATA.meta20 && Array.isArray(DATA.meta20.clientes) && DATA.meta20.clientes.length){
+    provisoria = true;
+    const visita = new Map();
+    (DATA.meta20.visitas||[]).forEach(v => { const k = String(v[0]); if(!visita.has(k)) visita.set(k, v); });
+    const vistos = new Set();
+    DATA.meta20.clientes.forEach(c => {
+      const sold = String(c[0]), setor = c[2]!=null ? String(c[2]) : null;
+      if(!setor || setor==='506' || vistos.has(sold+'|'+setor)) return;
+      vistos.add(sold+'|'+setor);
+      const v = visita.get(sold) || [];
+      rows.push([sold, setor, c[1], scNormalizarDia(v[1]), scNormalizarCiclo(v[2]), null, null, null, null, null]);
+    });
+  }
+  const carteira = rows.map(r => ({
+    sold: String(r[0]), setor: String(r[1]), razao: r[2], dia: r[3], ciclo: r[4] || '1234',
+    supervisor: r[5], cidade: r[6], bairro: r[7], canal: r[8], telefone: r[9],
+  }));
+
+  const compras = new Map(); // Sold|Setor -> [[dataMs, faturamento], ...]
+  for(const v of fonteVendas){
+    if(v[0]==null || v[1]==null || !v[3]) continue;
+    const k = String(v[0]) + '|' + String(v[1]);
+    let lista = compras.get(k); if(!lista){ lista = []; compras.set(k, lista); }
+    lista.push([parseDateOnly(v[3]), Number(v[9])||0]);
+  }
+  _scCache = {fonteCarteira, fonteVendas, carteira, compras, provisoria};
+  return _scCache;
+}
+
+/* ---------------------- Calendário de visitas ---------------------- */
+function scDiaSemana(ms){ return ((new Date(ms).getUTCDay()+6)%7)+1; } // 1=segunda … 7=domingo
+function scSemanaCiclo(ms){ return ((Math.floor((ms/SC_DIA_MS + 3)/7) + 1) % 4) + 1; } // 1..4, vira na segunda
+// O cliente tem visita no dia `ms`? (dia null = sem dia fixo na BASE: vale qualquer dia útil)
+function scTemVisita(cli, ms){
+  const ds = scDiaSemana(ms);
+  if(ds>5) return false;
+  if(cli.dia!=null && cli.dia!==ds) return false;
+  return cli.ciclo.includes(String(scSemanaCiclo(ms)));
+}
+function scHojeMs(){ const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); }
+function scInicioMesMs(ms){ const d = new Date(ms); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); }
+function scInicioSemanaMs(ms){ return ms - (scDiaSemana(ms)-1)*SC_DIA_MS; }
+function scCicloLabel(c){
+  if(!c || c==='1234') return 'Toda semana';
+  if(c==='13') return 'Semanas 1 e 3';
+  if(c==='24') return 'Semanas 2 e 4';
+  return 'Semanas ' + c.split('').join(', ');
+}
+function scProximaVisita(cli, aPartirMs){
+  for(let i=0, ms=aPartirMs; i<35; i++, ms+=SC_DIA_MS){ if(scTemVisita(cli, ms)) return ms; }
+  return null;
+}
+
+/* ---------------------- Filtros ---------------------- */
+function scVendedorNome(setor){
+  const lista = (DATA.meta20 && DATA.meta20.vendedoresPorSetor) || [];
+  for(const [s,v] of lista){ if(String(s)===String(setor) && v) return v; }
+  return null;
+}
+function scVendedorLabel(setor){ const n = scVendedorNome(setor); return n ? setor + ' — ' + n : setor; }
+function scSupervisorLabel(cod){ return cod==null ? '—' : (SC_SUPERVISOR_NOMES[cod] ? cod + ' — ' + SC_SUPERVISOR_NOMES[cod] : String(cod)); }
+function scLerFiltros(){
+  const val = id => (document.getElementById(id)||{}).value || '';
+  return {
+    supervisor: val('sc-supervisor'), vendedor: val('sc-vendedor'),
+    deMs: parseDateOnly(val('sc-de')), ateMs: parseDateOnly(val('sc-ate')),
+    quinzena: val('sc-quinzena'), dia: val('sc-dia') ? Number(val('sc-dia')) : null,
+    cliente: val('sc-cliente').trim().toLowerCase(),
+  };
+}
+function scPreencherSelect(id, opcoes){
+  const sel = document.getElementById(id);
+  if(!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">(Todos)</option>' + opcoes.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+  sel.value = opcoes.some(o => o.value===atual) ? atual : '';
+}
+// Vendedor depende do Supervisor escolhido (filtros integrados).
+function scAtualizarOpcoes(carteira){
+  const sups = Array.from(new Set(carteira.map(c => c.supervisor).filter(v => v!=null))).sort();
+  scPreencherSelect('sc-supervisor', sups.map(s => ({value:s, label:scSupervisorLabel(s)})));
+  const sup = (document.getElementById('sc-supervisor')||{}).value || '';
+  const setores = Array.from(new Set(carteira.filter(c => !sup || c.supervisor===sup).map(c => c.setor))).sort();
+  scPreencherSelect('sc-vendedor', setores.map(s => ({value:s, label:scVendedorLabel(s)})));
+}
+function scPeriodoPadrao(){
+  const hoje = scHojeMs();
+  document.getElementById('sc-de').value = fmtDateOnly(scInicioMesMs(hoje));
+  document.getElementById('sc-ate').value = fmtDateOnly(hoje);
+}
+
+/* ---------------------- Cálculo ---------------------- */
+function scCalcular(f){
+  const {carteira, compras} = scDados();
+  const compraDeMs = scInicioMesMs(f.deMs);
+  const hoje = scHojeMs();
+  // Dias do período que valem para a carteira (respeitando Quinzena e Dia de visita).
+  const diasValidos = [];
+  for(let ms=f.deMs; ms<=f.ateMs && diasValidos.length<400; ms+=SC_DIA_MS){
+    const ds = scDiaSemana(ms);
+    if(ds>5) continue;
+    if(f.dia && ds!==f.dia) continue;
+    const sem = scSemanaCiclo(ms);
+    if(f.quinzena==='13' && sem!==1 && sem!==3) continue;
+    if(f.quinzena==='24' && sem!==2 && sem!==4) continue;
+    diasValidos.push(ms);
+  }
+
+  const naCarteira = [], semCompra = [];
+  let compraram = 0;
+  for(const cli of carteira){
+    if(f.supervisor && cli.supervisor!==f.supervisor) continue;
+    if(f.vendedor && cli.setor!==f.vendedor) continue;
+    if(f.cliente && !(cli.sold.includes(f.cliente) || String(cli.razao||'').toLowerCase().includes(f.cliente))) continue;
+    if(f.dia && cli.dia!==f.dia) continue;
+    if(!diasValidos.some(ms => scTemVisita(cli, ms))) continue;
+    naCarteira.push(cli);
+
+    const lista = compras.get(cli.sold + '|' + cli.setor) || [];
+    let fatMes = 0, ultimaMs = null;
+    for(const [ms, fat] of lista){
+      if(ms==null || ms>f.ateMs) continue;
+      if(ms>=compraDeMs) fatMes += fat;
+      if(fat>0 && (ultimaMs==null || ms>ultimaMs)) ultimaMs = ms;
+    }
+    if(fatMes>0){ compraram++; continue; }
+    const diasSem = ultimaMs!=null ? Math.round((f.ateMs-ultimaMs)/SC_DIA_MS) : null;
+    semCompra.push({
+      sold: cli.sold, setor: cli.setor,
+      razao: cli.razao || ((clienteMetaMap && clienteMetaMap.get(cli.sold)) || {}).razaoSocial || '—',
+      vendedor: scVendedorLabel(cli.setor),
+      supervisor: cli.supervisor!=null ? (SC_SUPERVISOR_NOMES[cli.supervisor] || cli.supervisor) : '—',
+      canal: cli.canal || '—',
+      regiao: [cli.cidade, cli.bairro].filter(Boolean).join(' · ') || '—',
+      visita: cli.dia ? SC_DIAS[cli.dia] : '—', ciclo: scCicloLabel(cli.ciclo),
+      proximaMs: scProximaVisita(cli, hoje),
+      ultimaMs, diasSem,
+      status: ultimaMs==null ? 'NUNCA COMPROU' : diasSem>90 ? 'SEM COMPRA HÁ +90 DIAS' : 'SEM COMPRA NO MÊS',
+    });
+  }
+  return {naCarteira, semCompra, compraram, compraDeMs};
+}
+
+/* ---------------------- Render ---------------------- */
+function renderSemCompra(){
+  const hint = document.getElementById('sc-hint');
+  const wrap = document.getElementById('sc-wrap');
+  if(!hint || !wrap) return;
+  const dados = scDados();
+  scAtualizarOpcoes(dados.carteira);
+
+  const semanaHoje = scSemanaCiclo(scHojeMs());
+  const info = document.getElementById('sc-semana-info');
+  if(info) info.textContent = `Semana atual: semana ${semanaHoje} do ciclo (quinzena das semanas ${(semanaHoje===1 || semanaHoje===3) ? '1 e 3' : '2 e 4'}).`;
+
+  if(!dados.carteira.length){
+    wrap.style.display = 'none'; hint.style.display = '';
+    hint.textContent = 'Envie a planilha de Vendas (com a aba BASE) para carregar a carteira de clientes.';
+    return;
+  }
+  const f = scLerFiltros();
+  if(f.deMs==null || f.ateMs==null || f.deMs>f.ateMs){
+    wrap.style.display = 'none'; hint.style.display = '';
+    hint.textContent = 'Informe um período válido (data inicial menor ou igual à final).';
+    return;
+  }
+  hint.style.display = dados.provisoria ? '' : 'none';
+  hint.textContent = dados.provisoria
+    ? 'Carteira provisória (sem cidade, canal e supervisor): envie a planilha de Vendas de novo para carregar a aba BASE completa.'
+    : '';
+  wrap.style.display = '';
+
+  const r = scCalcular(f);
+  const total = r.naCarteira.length;
+  const cobertura = total ? r.compraram/total : null;
+  renderKPIs('kpi-semcompra', [
+    {label:'Clientes da Carteira', value: fmtInt(total), note: 'com visita programada no período'},
+    {label:'Clientes que Compraram', value: fmtInt(r.compraram), tone:'good'},
+    {label:'Clientes sem Compra', value: fmtInt(r.semCompra.length), tone: r.semCompra.length ? 'critical' : 'good'},
+    {label:'% de Cobertura da Carteira', value: fmtPct(cobertura), tone: cobertura==null ? '' : cobertura>=0.8 ? 'good' : cobertura>=0.6 ? 'warning' : 'critical'},
+  ]);
+
+  document.getElementById('sc-sub').textContent =
+    `Carteira: clientes com visita programada entre ${fmtDateBR(f.deMs)} e ${fmtDateBR(f.ateMs)}` +
+    (f.quinzena ? ` (semanas ${f.quinzena==='13' ? '1 e 3' : '2 e 4'})` : '') + (f.dia ? ` · ${SC_DIAS[f.dia]}` : '') +
+    ` · compras consideradas de ${fmtDateBR(r.compraDeMs)} a ${fmtDateBR(f.ateMs)}.`;
+
+  makeTable('table-semcompra', {
+    headers: [
+      {key:'sold', label:'Sold'},
+      {key:'razao', label:'Razão Social'},
+      {key:'vendedor', label:'Vendedor'},
+      {key:'supervisor', label:'Supervisor'},
+      {key:'canal', label:'Canal'},
+      {key:'regiao', label:'Cidade/Região'},
+      {key:'visita', label:'Dia de Visita'},
+      {key:'ciclo', label:'Ciclo'},
+      {key:'proximaMs', label:'Próxima Visita', format: v => fmtDateBR(v)},
+      {key:'ultimaMs', label:'Última Compra', format: v => fmtDateBR(v)},
+      {key:'diasSem', label:'Dias sem Compra', align:'right', format: v => v==null ? '—' : fmtInt(v)},
+      {key:'status', label:'Status', format: v => { const s = SC_STATUS_STYLE[v]; return s ? pillHtml(v, s[0], s[1]) : esc(v); }},
+    ],
+    rows: r.semCompra, getRow: x => x,
+    searchable: true, pageSize: 25, defaultSort: {key:'proximaMs', dir:'asc'},
+  });
+
+  // Resumo por vendedor — mesma carteira e período, para o supervisor comparar.
+  const porSetor = new Map();
+  r.naCarteira.forEach(c => { const o = porSetor.get(c.setor) || {carteira:0, sem:0}; o.carteira++; porSetor.set(c.setor, o); });
+  r.semCompra.forEach(c => { porSetor.get(c.setor).sem++; });
+  makeTable('table-semcompra-vend', {
+    headers: [
+      {key:'vendedor', label:'Vendedor'},
+      {key:'carteira', label:'Carteira', align:'right', format: fmtInt},
+      {key:'compraram', label:'Compraram', align:'right', format: fmtInt},
+      {key:'sem', label:'Sem Compra', align:'right', format: fmtInt},
+      {key:'cobertura', label:'Cobertura', align:'right', format: fmtPct},
+    ],
+    rows: Array.from(porSetor.entries()).map(([setor, o]) => ({
+      vendedor: scVendedorLabel(setor), carteira: o.carteira, compraram: o.carteira-o.sem, sem: o.sem,
+      cobertura: o.carteira ? (o.carteira-o.sem)/o.carteira : null,
+    })),
+    getRow: x => x, searchable: false, pageSize: 20, defaultSort: {key:'vendedor', dir:'asc'},
+  });
+}
+
+function initSemCompra(){
+  if(!document.getElementById('sc-filtros')) return; // aba não presente neste HTML — módulo fica inerte
+  scPeriodoPadrao();
+  ['sc-supervisor','sc-vendedor','sc-de','sc-ate','sc-quinzena','sc-dia'].forEach(id => {
+    document.getElementById(id).addEventListener('change', renderSemCompra);
+  });
+  document.getElementById('sc-cliente').addEventListener('input', renderSemCompra);
+  document.getElementById('sc-reset').addEventListener('click', () => {
+    ['sc-supervisor','sc-vendedor','sc-quinzena','sc-dia','sc-cliente'].forEach(id => { document.getElementById(id).value = ''; });
+    scPeriodoPadrao();
+    renderSemCompra();
+  });
+  document.querySelectorAll('[data-sc-atalho]').forEach(btn => btn.addEventListener('click', () => {
+    const hoje = scHojeMs(), tipo = btn.dataset.scAtalho;
+    const de = tipo==='hoje' ? hoje : tipo==='semana' ? scInicioSemanaMs(hoje) : scInicioMesMs(hoje);
+    document.getElementById('sc-de').value = fmtDateOnly(de);
+    document.getElementById('sc-ate').value = fmtDateOnly(hoje);
+    renderSemCompra();
+  }));
+  RENDERERS.semcompra = renderSemCompra;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -3911,6 +4310,7 @@ function init(){
   initMapaVenda();
   initNrab();
   initMeta20();
+  initSemCompra();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();
