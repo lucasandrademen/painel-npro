@@ -2154,7 +2154,24 @@ async function applyVendasUpload(buf){
     periodoPadrao.fim = new Date(deMs + (diasPeriodo-1)*86400000).toISOString().slice(0,10);
   }
 
-  const baseVendas = [];
+  // A aba BASE é lida primeiro: a carteira diz quem é a equipe (Setores da BASE)
+  // e, pela coluna GRUPO COMERCIAL, quem atende cada cliente na força NPRO e na
+  // força BEBIDAS.
+  const baseGrid = await lerGridAbaBase(wb, buf, zipEntries);
+  const carteiraNova = parseCarteiraBase(baseGrid);
+  const carteiraRef = carteiraNova || DATA.carteira || null;
+  const equipe = new Set((carteiraRef && carteiraRef.rows || []).map(r => String(r[1])));
+  const forcaDe = new Map();
+  (carteiraRef && carteiraRef.forcas || []).forEach(([sold, npro, beb]) => forcaDe.set(String(sold), {npro, beb}));
+
+  // A planilha de Vendas pode trazer as vendas NPRO/Bebidas de TODOS os vendedores
+  // da empresa (abas "CONSULTA DE VENDAS NPRO/BEBIDAS <ano>"). Venda de vendedor de
+  // fora da equipe 500 para um cliente da equipe cai para o vendedor que atende o
+  // cliente naquela força; para um cliente de fora da carteira, fica à parte
+  // (DATA.vendasForaEquipe) — só entra no total da empresa do Brasileirão, nunca
+  // como vendedor nem nas demais abas.
+  const baseVendas = [], vendasForaEquipe = [];
+  let reatribuidas = 0, reatribuidasFat = 0, foraFat = 0;
   const clientesMap = new Map(); // sold -> {razaoSocial, vcode}
   const vendedoresSet = new Set();
   const skusVendidosSet = new Set();
@@ -2164,6 +2181,18 @@ async function applyVendasUpload(buf){
     const rowDayMs = dayMs(r.dataPedido);
     const realizada = (rowDayMs!=null && rowDayMs < cutoffMs) ? 1 : 0;
     const dataStr = toIsoDateOp(r.dataPedido);
+    if(equipe.size && r.vcode!=null && !equipe.has(String(r.vcode))){
+      const f = forcaDe.get(String(r.sold));
+      const atendente = f ? (r.origem==='BEBIDAS' ? (f.beb || f.npro) : (f.npro || f.beb)) : null;
+      if(!atendente){
+        vendasForaEquipe.push([r.sold, r.vcode, r.pedido, dataStr, r.sku, r.grupo, r.familia, r.origem, realizada,
+          Math.round(r.fat*100)/100, r.unid, Math.round(r.cx*10000)/10000]);
+        foraFat += r.fat;
+        return;
+      }
+      reatribuidas++; reatribuidasFat += r.fat;
+      r = Object.assign({}, r, {vcode: atendente});
+    }
     baseVendas.push([r.sold, r.vcode, r.pedido, dataStr, r.sku, r.grupo, r.familia, r.origem, realizada,
       Math.round(r.fat*100)/100, r.unid, Math.round(r.cx*10000)/10000]);
     if(r.vcode) vendedoresSet.add(r.vcode);
@@ -2204,16 +2233,15 @@ async function applyVendasUpload(buf){
   // Meta 20+ e Clientes sem Compra: cadastro de clientes/visitas e carteira da
   // aba BASE (o faturamento sai de baseVendas). Sem a aba, mantém o que já
   // estava carregado.
-  const baseGrid = await lerGridAbaBase(wb, buf, zipEntries);
   const baseMeta20 = parseMeta20BaseSheet(baseGrid);
   const meta20 = baseMeta20 || (DATA.meta20 ? {
     clientes: DATA.meta20.clientes || [], visitas: DATA.meta20.visitas || [], vendedoresPorSetor: DATA.meta20.vendedoresPorSetor || [],
   } : {clientes: [], visitas: [], vendedoresPorSetor: []});
 
-  const carteira = parseCarteiraBase(baseGrid) || DATA.carteira || null;
+  const carteira = carteiraRef;
 
   const newData = Object.assign({}, DATA, {
-    vendedores, periodoPadrao, baseVendas, clientes, meta20, carteira,
+    vendedores, periodoPadrao, baseVendas, clientes, meta20, carteira, vendasForaEquipe,
     sku: { headers: DATA.sku.headers, rows: skuRows },
     cross: { headers: DATA.cross.headers, rows: crossRows },
   });
@@ -2226,6 +2254,8 @@ async function applyVendasUpload(buf){
       skusSemGrupoOrigem: skusSemGrupoOrigem.size, skusSemGrupoOrigemList: Array.from(skusSemGrupoOrigem),
       clientes: clientes.length, vendedores: vendedores.length,
       carteira: baseMeta20 && carteira ? carteira.rows.length : null,
+      reatribuidas, reatribuidasFat: Math.round(reatribuidasFat),
+      foraEquipe: vendasForaEquipe.length, foraEquipeFat: Math.round(foraFat),
     },
     periodo: periodoPadrao,
   };
@@ -2249,6 +2279,8 @@ function logImportDiagnostics(diag){
     console.log('Clientes (SOLD únicos):', diag.counts.clientes);
     console.log('Vendedores (códigos, excl. 506):', diag.counts.vendedores);
     console.log('Carteira (aba BASE, Sold+Setor):', diag.counts.carteira);
+    console.log('Vendas de fora da equipe reatribuídas ao vendedor do cliente:', diag.counts.reatribuidas, 'R$', diag.counts.reatribuidasFat);
+    console.log('Vendas de fora da equipe para clientes fora da carteira (só no total da empresa):', diag.counts.foraEquipe, 'R$', diag.counts.foraEquipeFat);
     console.log('Período padrão:', diag.periodo);
   }
   console.log(diag.ok ? '✅ PRONTO PARA ATUALIZAR' : '❌ NÃO PRONTO');
@@ -2314,6 +2346,7 @@ function buildSummaryModal(diag, filename, onConfirm, onCancel){
         <div>Clientes (SOLD únicos): <b>${diag.counts.clientes}</b></div>
         <div>Vendedores: <b>${diag.counts.vendedores}</b></div>
         <div>Carteira (aba BASE): <b>${diag.counts.carteira!=null ? diag.counts.carteira + ' clientes' : 'não encontrada'}</b></div>
+        ${diag.counts.reatribuidas || diag.counts.foraEquipe ? `<div style="grid-column:1/-1;">Vendas de outros vendedores: <b>${fmtInt(diag.counts.reatribuidas)}</b> linhas (${fmtBRL0(diag.counts.reatribuidasFat)}) passaram para o vendedor da equipe que atende o cliente; <b>${fmtInt(diag.counts.foraEquipe)}</b> (${fmtBRL0(diag.counts.foraEquipeFat)}) são de clientes fora da carteira e só entram no total da empresa do Brasileirão.</div>` : ''}
       </div>
       <div style="margin-top:10px;font-size:12.5px;color:var(--text-muted);">
         Período identificado: <b>${diag.periodo.inicio ? esc(diag.periodo.inicio.split('-').reverse().join('/')) : '—'} a ${diag.periodo.fim ? esc(diag.periodo.fim.split('-').reverse().join('/')) : '—'}</b>
@@ -4871,6 +4904,16 @@ function brCalcular(mesKey){
     let o = porCliente.get(kc); if(!o){ o = {}; porCliente.set(kc, o); }
     o[sub] = (o[sub]||0) + fat;
   }
+  // Vendas de fora da equipe para clientes fora da carteira: só no total da empresa.
+  const FORA = '__fora__';
+  for(const r of (DATA.vendasForaEquipe||[])){
+    const iso = r[3], sub = r[6];
+    if(!iso || !subs.has(sub) || iso<iniISO || iso>ateISO) continue;
+    const k = FORA + '|' + sub, sold = String(r[0]);
+    vbcMes.set(k, (vbcMes.get(k)||0) + (Number(r[9])||0));
+    let c = compradores.get(k); if(!c){ c = new Set(); compradores.set(k, c); } c.add(sold);
+    if(antISO && iso<=antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
+  }
   const num = v => Number(v)||0;
   const base = st => (baseSetor.get(st) || new Set()).size;
   const baseTotal = setores.reduce((s, st) => s + base(st), 0);
@@ -4890,15 +4933,17 @@ function brCalcular(mesKey){
   function linhas(st){
     const lista = st===BR_TOTAL ? setores : [st];
     const soma = f => lista.reduce((s, x) => s + f(x), 0);
+    // No total da empresa, o efetivo inclui as vendas de outros vendedores da MB (FORA).
+    const somaEf = f => soma(f) + (st===BR_TOTAL ? f(FORA) : 0);
     const cobertura = BR_SUBCATS.map(sub => {
-      const meta = soma(x => metaCob(x, sub)), efetivo = soma(x => (compradores.get(x+'|'+sub)||new Set()).size);
-      const ant = soma(x => (compradoresAnt.get(x+'|'+sub)||new Set()).size);
+      const meta = soma(x => metaCob(x, sub)), efetivo = somaEf(x => (compradores.get(x+'|'+sub)||new Set()).size);
+      const ant = somaEf(x => (compradoresAnt.get(x+'|'+sub)||new Set()).size);
       const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
       return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal, ant, evolucao: efetivo-ant,
         pts, final: pts*BR_MULT, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
     });
     const vbc = BR_SUBCATS.map(sub => {
-      const meta = soma(x => metaVbc(x, sub)), efetivo = soma(x => num(vbcMes.get(x+'|'+sub)));
+      const meta = soma(x => metaVbc(x, sub)), efetivo = somaEf(x => num(vbcMes.get(x+'|'+sub)));
       const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
       return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal,
         tendencia: cal.decorridos ? efetivo/cal.decorridos*cal.uteis : null,
