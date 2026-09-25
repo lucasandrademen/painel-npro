@@ -919,7 +919,7 @@ function makeTable(containerId, opts){
     html += `<div class="table-wrap"><table class="datatable"><thead><tr>`;
     opts.headers.forEach(h => {
       const arrow = sortKey===h.key ? (sortDir==='asc'?'▲':'▼') : '';
-      html += `<th data-key="${h.key}" style="text-align:${h.align||'left'}">${esc(h.label)}<span class="arrow">${arrow}</span></th>`;
+      html += `<th data-key="${h.key}"${h.cls?` class="${h.cls}"`:''} style="text-align:${h.align||'left'}">${esc(h.label)}<span class="arrow">${arrow}</span></th>`;
     });
     html += `</tr></thead><tbody>`;
     if(pageRows.length===0){
@@ -930,7 +930,7 @@ function makeTable(containerId, opts){
       opts.headers.forEach(h => {
         const raw = r[h.key];
         const val = h.format ? h.format(raw, r) : esc(raw);
-        html += `<td style="text-align:${h.align||'left'}">${val}</td>`;
+        html += `<td${h.cls?` class="${h.cls}"`:''} style="text-align:${h.align||'left'}">${val}</td>`;
       });
       html += '</tr>';
     });
@@ -4316,6 +4316,10 @@ function initSemCompra(){
 const CR_CATEGORIAS = ['01-NP LACTEOS','02-NP CHOCOLATES','03-NP CULINARIOS','07-NP SOLUCOES'];
 // Acompanhamento por cliente (abas "Por Cliente Npro" + "Por Cliente bebidas"): todas as categorias NP.
 const CR_CATEGORIAS_CLIENTE = ['01-NP LACTEOS','02-NP CHOCOLATES','03-NP CULINARIOS','04-NP SOBREMESAS','05-NP BISCOITOS','06-NP STANDARD','07-NP SOLUCOES'];
+// Cor de cada categoria (classe CSS) — usada nas colunas e etiquetas da aba.
+const CR_CAT_COR = {'01-NP LACTEOS':'cr-c-lac','02-NP CHOCOLATES':'cr-c-cho','03-NP CULINARIOS':'cr-c-cul',
+  '04-NP SOBREMESAS':'cr-c-sob','05-NP BISCOITOS':'cr-c-bis','06-NP STANDARD':'cr-c-std','07-NP SOLUCOES':'cr-c-sol'};
+function crCatTag(cat){ return CR_CAT_COR[cat] ? `<span class="cr-cat-tag ${CR_CAT_COR[cat]}">${esc(cat)}</span>` : esc(cat); }
 const CR_CAT_CURTO = {'01-NP LACTEOS':'Lácteos','02-NP CHOCOLATES':'Chocolates','03-NP CULINARIOS':'Culinários',
   '04-NP SOBREMESAS':'Sobremesas','05-NP BISCOITOS':'Biscoitos','06-NP STANDARD':'Standard','07-NP SOLUCOES':'Soluções'};
 const CR_SETOR_TOTAL = '1';
@@ -4470,15 +4474,15 @@ function crTabela(containerId, headers, rows, total){
   if(headers.some(h => h.grupo)){
     for(let i=0; i<headers.length; ){
       let j = i; while(j<headers.length && headers[j].grupo===headers[i].grupo) j++;
-      grupos += `<th colspan="${j-i}" class="cr-grupo">${esc(headers[i].grupo||'')}</th>`;
+      grupos += `<th colspan="${j-i}" class="cr-grupo ${headers[i].cls||''}">${esc(headers[i].grupo||'')}</th>`;
       i = j;
     }
     grupos = '<tr>' + grupos + '</tr>';
   }
   let html = '<div class="table-wrap"><table class="datatable"><thead>' + grupos + '<tr>' +
-    headers.map(h => `<th style="text-align:${h.align||'left'}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>';
-  rows.forEach(r => { html += '<tr>' + headers.map(h => `<td style="text-align:${h.align||'left'}">${cell(h, r)}</td>`).join('') + '</tr>'; });
-  if(total) html += '<tr class="cr-total">' + headers.map(h => `<td style="text-align:${h.align||'left'}">${total[h.key]==null ? '' : cell(h, total)}</td>`).join('') + '</tr>';
+    headers.map(h => `<th class="${h.cls||''}" style="text-align:${h.align||'left'}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(r => { html += '<tr>' + headers.map(h => `<td class="${h.cls||''}" style="text-align:${h.align||'left'}">${cell(h, r)}</td>`).join('') + '</tr>'; });
+  if(total) html += '<tr class="cr-total">' + headers.map(h => `<td class="${h.cls||''}" style="text-align:${h.align||'left'}">${total[h.key]==null ? '' : cell(h, total)}</td>`).join('') + '</tr>';
   el.innerHTML = html + '</tbody></table></div>';
   el._printSnapshot = {headers: headers.map(h => h.grupo ? Object.assign({}, h, {label: h.grupo + ' ' + h.label}) : h),
     rows: total ? rows.concat([total]) : rows};
@@ -4493,11 +4497,11 @@ function crRenderPorVendedor(res){
   function montar(containerId, bloco, fmt){
     const headers = [{key:'vendedor', label:'Vendedor'}];
     CR_CATEGORIAS.forEach((c, i) => {
-      const g = CR_CAT_CURTO[c];
-      headers.push({key:'m'+i, label:'Meta', align:'right', grupo:g, format:fmt},
-        {key:'e'+i, label:'Efet.', align:'right', grupo:g, format:fmt},
-        {key:'s'+i, label:'Saldo', align:'right', grupo:g, format:saldoCls(fmt)},
-        {key:'p'+i, label:'%', align:'right', grupo:g, format:pctFmt});
+      const g = CR_CAT_CURTO[c], cls = CR_CAT_COR[c];
+      headers.push({key:'m'+i, label:'Meta', align:'right', grupo:g, cls, format:fmt},
+        {key:'e'+i, label:'Efet.', align:'right', grupo:g, cls, format:fmt},
+        {key:'s'+i, label:'Saldo', align:'right', grupo:g, cls, format:saldoCls(fmt)},
+        {key:'p'+i, label:'%', align:'right', grupo:g, cls, format:pctFmt});
     });
     const linha = ({st, l}) => {
       const o = {vendedor: crSetorLabel(st)};
@@ -4556,7 +4560,7 @@ function crRenderPorCliente(res, setorSel){
   ];
   CR_CATEGORIAS_CLIENTE.forEach((c, i) => {
     // Cobertura (1/0) e VBC na mesma célula; ordena pelo VBC.
-    headers.push({key:'v'+i, label: CR_CAT_CURTO[c], align:'center', format: (v, r) =>
+    headers.push({key:'v'+i, label: CR_CAT_CURTO[c], align:'center', cls: CR_CAT_COR[c], format: (v, r) =>
       '<div class="cr-cel">' + (r['c'+i] ? pillHtml('1', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">0</span>') +
       '<span class="cr-cel-vbc">' + (v ? fmtBRL0(v) : '—') + '</span></div>'});
   });
@@ -4608,7 +4612,7 @@ function renderCrescer(){
 
   const pctFmt = v => v==null ? '—' : fmtPct(v);
   crTabela('table-crescer-cob', [
-    {key:'cat', label:'Subcategoria'},
+    {key:'cat', label:'Subcategoria', format: v => v==='TOTAL' ? 'TOTAL' : crCatTag(v)},
     {key:'meta', label:'Meta', align:'right', format: fmtInt},
     {key:'efetivo', label:'Efetivo', align:'right', format: fmtInt},
     {key:'saldo', label:'Saldo', align:'right', format: fmtInt},
@@ -4628,7 +4632,7 @@ function renderCrescer(){
   totVbc.pct = totVbc.meta>0 ? totVbc.efetivo/totVbc.meta : null;
   totVbc.ok = totVbc.pct!=null && totVbc.pct>=cal.ideal;
   crTabela('table-crescer-vbc', [
-    {key:'cat', label:'Subcategoria'},
+    {key:'cat', label:'Subcategoria', format: v => v==='TOTAL' ? 'TOTAL' : crCatTag(v)},
     {key:'tri', label:'Últ. trimestre', align:'right', format: fmtBRL0},
     {key:'meta', label:'Meta', align:'right', format: fmtBRL0},
     {key:'efetivo', label:'Efetivo', align:'right', format: fmtBRL0},
