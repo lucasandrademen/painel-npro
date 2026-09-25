@@ -107,38 +107,20 @@ function initTabs(){
     if(p && t.grupo) p.classList.add('tabpanel-grupo');
   });
 
-  // Barra de atalhos do grupo: todas as seções do grupo ficam abertas, uma
-  // embaixo da outra, e cada botão só rola a página até a seção.
-  const sub = document.createElement('div');
-  sub.className = 'subnav';
-  nav.parentNode.appendChild(sub);
-  const topoFixo = () => nav.parentNode.getBoundingClientRect().height + 8;
-
   function mostrar(idOuGrupo){
     const ids = TAB_GRUPOS[idOuGrupo] ? TABS.filter(t => t.grupo===idOuGrupo).map(t => t.id) : [idOuGrupo];
     document.querySelectorAll('.tabpanel').forEach(p => p.classList.toggle('active', ids.includes(p.dataset.tab)));
     window.scrollTo({top:0, behavior:'instant' in window ? 'instant' : 'auto'});
   }
-  function montarSubnav(grupo){
-    if(!grupo){ sub.innerHTML = ''; sub.style.display = 'none'; return; }
-    sub.style.display = '';
-    sub.innerHTML = '<div class="subnav-inner"><span class="subnav-label">Ir para:</span>' + TABS.filter(t => t.grupo===grupo).map(t =>
-      `<button class="subtabbtn" data-subtabid="${t.id}">${esc(t.label)}</button>`).join('') + '</div>';
-    sub.querySelectorAll('.subtabbtn').forEach(b => b.addEventListener('click', () => {
-      const alvo = document.querySelector(`.tabpanel[data-tab="${b.dataset.subtabid}"]`);
-      if(alvo) window.scrollTo({top: alvo.getBoundingClientRect().top + window.scrollY - topoFixo(), behavior:'auto'});
-    }));
-  }
   nav.querySelectorAll('.tabbtn').forEach(btn => {
     btn.addEventListener('click', () => {
       nav.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      montarSubnav(TAB_GRUPOS[btn.dataset.tabid] ? btn.dataset.tabid : null);
       mostrar(btn.dataset.tabid);
     });
   });
   const primeiro = topo[0];
-  if(primeiro){ montarSubnav(primeiro.grupo ? primeiro.id : null); mostrar(primeiro.id); }
+  if(primeiro) mostrar(primeiro.id);
 }
 
 /* ============================== PILL STYLES ============================== */
