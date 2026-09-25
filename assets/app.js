@@ -4489,7 +4489,7 @@ function crCalcular(mesKey){
 
   // Por Setor|Categoria: compradores no mês, 1ª compra de cada cliente no mês, VBC do mês e do trimestre.
   // Por Setor|Sold: VBC do mês em cada categoria (acompanhamento por cliente).
-  const compradores = new Map(), primeira = new Map(), vbcMes = new Map(), vbcTri = new Map(), porCliente = new Map();
+  const compradores = new Map(), compradoresDia = new Map(), vbcMes = new Map(), vbcTri = new Map(), porCliente = new Map();
   for(const r of (DATA.baseVendas||[])){
     const grp = r[5], iso = r[3];
     if(!catsCliente.has(grp) || !iso || r[1]==null) continue;
@@ -4505,15 +4505,12 @@ function crCalcular(mesKey){
     if(!noMes) continue;
     vbcMes.set(k, (vbcMes.get(k)||0) + fat);
     let s = compradores.get(k); if(!s){ s = new Set(); compradores.set(k, s); } s.add(sold);
-    const kp = k + '|' + sold;
-    if(!primeira.has(kp) || iso<primeira.get(kp)) primeira.set(kp, iso);
+    // Dia anterior: clientes (Sold) que compraram a categoria NAQUELA data com o
+    // Setor — código do cliente × categoria × data, tenham ou não comprado antes no mês.
+    if(iso===diaAntISO){ let a = compradoresDia.get(k); if(!a){ a = new Set(); compradoresDia.set(k, a); } a.add(sold); }
   }
-  const novosNoDia = new Map(); // Setor|Categoria -> clientes cuja 1ª compra do mês foi no dia anterior
-  if(diaAntISO) primeira.forEach((iso, kp) => {
-    if(iso!==diaAntISO) return;
-    const k = kp.slice(0, kp.lastIndexOf('|'));
-    novosNoDia.set(k, (novosNoDia.get(k)||0) + 1);
-  });
+  const novosNoDia = new Map(); // Setor|Categoria -> nº de clientes que compraram a categoria no dia anterior
+  compradoresDia.forEach((set, k) => novosNoDia.set(k, set.size));
 
   const setores = crSetores();
   const valor = (mapa, setor, cat, f) => setor===CR_SETOR_TOTAL
