@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=17">
+<link rel="stylesheet" href="assets/app.css?v=18">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -670,14 +670,14 @@
         <div id="table-br-vbc"></div>
       </div>
       <div class="panel" style="margin-top:14px;">
-        <h3>Cobertura por Setor</h3>
-        <div class="panel-sub">Mesma conta da aba COBERTURAS da planilha. Base = clientes que compraram NPRO com o Setor no trimestre anterior.</div>
-        <div id="table-br-cob-vend"></div>
+        <h3>Cobertura e VBC por Setor</h3>
+        <div class="panel-sub">Uma tabela por subcategoria, com as mesmas contas das abas COBERTURAS e VBC da planilha. Base = clientes que compraram NPRO com o Setor no trimestre anterior.</div>
+        <div id="br-subs"></div>
       </div>
-      <div class="panel" style="margin-top:14px;">
-        <h3>VBC por Setor</h3>
-        <div class="panel-sub">Mesma conta da aba VBC da planilha.</div>
-        <div id="table-br-vbc-vend"></div>
+      <div class="panel br-totais-panel" style="margin-top:14px;">
+        <h3>Total por Setor x objetivo</h3>
+        <div class="panel-sub">Soma das 13 subcategorias: cobertura (clientes) e VBC (R$) efetivos contra o objetivo, com os pontos de cada bloco.</div>
+        <div id="table-br-totais"></div>
       </div>
       <div class="panel" style="margin-top:14px;">
         <h3>Por cliente</h3>
@@ -757,6 +757,6 @@
 </div>
 
 
-<script src="assets/app.js?v=30" defer></script>
+<script src="assets/app.js?v=31" defer></script>
 </body>
 </html>

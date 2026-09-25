@@ -2738,9 +2738,9 @@ const PRINT_CONFIG = {
   },
   brasileirao: {
     title:'Brasileirão NPRO', orientation:'landscape', kpi:'kpi-br', blocks:[], hideFilters:true,
-    tables:[{id:'table-br-ranking', title:'Ranking'}, {id:'table-br-cob', title:'Cobertura'}, {id:'table-br-vbc', title:'VBC'},
-      {id:'table-br-cob-vend', title:'Cobertura por Setor'}, {id:'table-br-vbc-vend', title:'VBC por Setor'},
-      {id:'table-br-cli', title:'Por cliente'}],
+    get tables(){ return [{id:'table-br-ranking', title:'Ranking'}, {id:'table-br-cob', title:'Cobertura'}, {id:'table-br-vbc', title:'VBC'},
+      ...BR_SUBCATS.map((sub, i) => ({id:'table-br-sub-'+i, title: sub})), {id:'table-br-totais', title:'Total por Setor x objetivo'},
+      {id:'table-br-cli', title:'Por cliente'}]; },
     periodLabel: () => document.getElementById('br-info').textContent,
     headerExtra: () => {
       const st = document.getElementById('br-setor').value, mes = document.getElementById('br-mes').value;
@@ -4922,29 +4922,56 @@ function brRenderResumo(res, st){
   ], l.vbc, tv);
 }
 
+// Uma tabela por subcategoria (Cobertura e VBC lado a lado, por Setor) e, no
+// fim, a tabela de totais do Setor em relação ao objetivo.
 function brRenderPorVendedor(res){
   const lista = res.setores.concat([BR_TOTAL]).map(st => ({st, l: res.linhas(st)}));
   const pctFmt = v => v==null ? '—' : fmtPct(v);
-  function montar(containerId, bloco, fmt, finalKey){
-    const headers = [{key:'vendedor', label:'Setor'}];
-    if(bloco==='cobertura') headers.push({key:'base', label:'Base', align:'right', format: fmtInt});
-    BR_SUBCATS.forEach((sub, i) => {
-      const g = sub, cls = brCor(sub);
-      headers.push({key:'m'+i, label:'Meta', align:'right', grupo:g, cls, format:fmt},
-        {key:'e'+i, label:'Efet.', align:'right', grupo:g, cls, format:fmt},
-        {key:'p'+i, label:'%', align:'right', grupo:g, cls, format:pctFmt},
-        {key:'t'+i, label:'Pts', align:'right', grupo:g, cls, format:fmtInt});
-    });
-    headers.push({key:'pts', label:'Pontos', align:'right', format: fmtInt}, {key:'final', label:'Final', align:'right', format: v => `<b>${brPtsFmt(v)}</b>`});
-    const linha = ({st, l}) => {
-      const o = {vendedor: brLabel(st), base: l.base, pts: bloco==='cobertura' ? l.ptsCob : l.ptsVbc, final: l[finalKey]};
-      l[bloco].forEach((x, i) => { o['m'+i] = x.meta; o['e'+i] = x.efetivo; o['p'+i] = x.pct; o['t'+i] = x.pts; });
-      return o;
-    };
-    crTabela(containerId, headers, lista.filter(x => x.st!==BR_TOTAL).map(linha), linha(lista.find(x => x.st===BR_TOTAL)));
+  const box = document.getElementById('br-subs');
+  if(box.childElementCount !== BR_SUBCATS.length){
+    box.innerHTML = BR_SUBCATS.map((sub, i) =>
+      `<div class="br-sub-bloco"><h4 class="br-sub-titulo">${brSubTag(sub)}</h4><div id="table-br-sub-${i}"></div></div>`).join('');
   }
-  montar('table-br-cob-vend', 'cobertura', fmtInt, 'finalCob');
-  montar('table-br-vbc-vend', 'vbc', fmtBRL0, 'finalVbc');
+  BR_SUBCATS.forEach((sub, i) => {
+    const cls = brCor(sub);
+    const headers = [
+      {key:'setor', label:'Setor'},
+      {key:'cm', label:'Meta', align:'right', grupo:'Cobertura', cls, format: fmtInt},
+      {key:'ce', label:'Efet.', align:'right', grupo:'Cobertura', cls, format: fmtInt},
+      {key:'cp', label:'%', align:'right', grupo:'Cobertura', cls, format: pctFmt},
+      {key:'ct', label:'Pts', align:'right', grupo:'Cobertura', cls, format: fmtInt},
+      {key:'vm', label:'Meta', align:'right', grupo:'VBC', cls, format: fmtBRL0},
+      {key:'ve', label:'Efet.', align:'right', grupo:'VBC', cls, format: fmtBRL0},
+      {key:'vp', label:'%', align:'right', grupo:'VBC', cls, format: pctFmt},
+      {key:'vt', label:'Pts', align:'right', grupo:'VBC', cls, format: fmtInt},
+    ];
+    const linha = ({st, l}) => {
+      const c = l.cobertura[i], v = l.vbc[i];
+      return {setor: brLabel(st), cm: c.meta, ce: c.efetivo, cp: c.pct, ct: c.pts, vm: v.meta, ve: v.efetivo, vp: v.pct, vt: v.pts};
+    };
+    crTabela('table-br-sub-'+i, headers, lista.filter(x => x.st!==BR_TOTAL).map(linha), linha(lista.find(x => x.st===BR_TOTAL)));
+  });
+
+  const soma = (arr, k) => arr.reduce((t, x) => t + (Number(x[k])||0), 0);
+  const tot = ({st, l}) => {
+    const cm = soma(l.cobertura,'meta'), ce = soma(l.cobertura,'efetivo'), vm = soma(l.vbc,'meta'), ve = soma(l.vbc,'efetivo');
+    return {setor: brLabel(st), cm, ce, cp: cm>0 ? ce/cm : null, ct: l.ptsCob, cf: l.finalCob,
+      vm, ve, vp: vm>0 ? ve/vm : null, vt: l.ptsVbc, vf: l.finalVbc, total: l.total};
+  };
+  crTabela('table-br-totais', [
+    {key:'setor', label:'Setor'},
+    {key:'cm', label:'Objetivo', align:'right', grupo:'Cobertura (clientes)', format: fmtInt},
+    {key:'ce', label:'Efetivo', align:'right', grupo:'Cobertura (clientes)', format: fmtInt},
+    {key:'cp', label:'%', align:'right', grupo:'Cobertura (clientes)', format: pctFmt},
+    {key:'ct', label:'Pontos', align:'right', grupo:'Cobertura (clientes)', format: fmtInt},
+    {key:'cf', label:'Final', align:'right', grupo:'Cobertura (clientes)', format: brPtsFmt},
+    {key:'vm', label:'Objetivo', align:'right', grupo:'VBC', format: fmtBRL0},
+    {key:'ve', label:'Efetivo', align:'right', grupo:'VBC', format: fmtBRL0},
+    {key:'vp', label:'%', align:'right', grupo:'VBC', format: pctFmt},
+    {key:'vt', label:'Pontos', align:'right', grupo:'VBC', format: fmtInt},
+    {key:'vf', label:'Final', align:'right', grupo:'VBC', format: brPtsFmt},
+    {key:'total', label:'Total final', align:'right', grupo:' ', format: v => `<b>${brPtsFmt(v)}</b>`},
+  ], lista.filter(x => x.st!==BR_TOTAL).map(tot), tot(lista.find(x => x.st===BR_TOTAL)));
 }
 
 function brRenderPorCliente(res, setorSel){
