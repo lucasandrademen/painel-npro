@@ -4557,9 +4557,10 @@ function crRenderPorCliente(res, setorSel){
     {key:'carteira', label:'Na carteira'},
   ];
   CR_CATEGORIAS_CLIENTE.forEach((c, i) => {
-    headers.push({key:'c'+i, label: CR_CAT_CURTO[c], align:'center',
-      format: v => v ? pillHtml('1', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">0</span>'});
-    headers.push({key:'v'+i, label: 'VBC ' + CR_CAT_CURTO[c], align:'right', format: v => v ? fmtBRL0(v) : '—'});
+    // Cobertura (1/0) e VBC na mesma célula; ordena pelo VBC.
+    headers.push({key:'v'+i, label: CR_CAT_CURTO[c], align:'center', format: (v, r) =>
+      '<div class="cr-cel">' + (r['c'+i] ? pillHtml('1', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">0</span>') +
+      '<span class="cr-cel-vbc">' + (v ? fmtBRL0(v) : '—') + '</span></div>'});
   });
   headers.push({key:'cobertasPrograma', label:'Cat. Crescer +', align:'right', format: v => `${v} de ${CR_CATEGORIAS.length}`});
   headers.push({key:'vbcTotal', label:'VBC total', align:'right', format: fmtBRL0});

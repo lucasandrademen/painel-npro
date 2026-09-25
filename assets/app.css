@@ -294,6 +294,8 @@ a{color:var(--accent-2);}
 .datatable th.cr-grupo{text-align:center; border-bottom:1px solid var(--border); border-left:1px solid var(--border);}
 .cr-negativo{color:var(--good-ink); font-weight:600;}
 .cr-zero{color:var(--text-faint);}
+.cr-cel{display:flex; flex-direction:column; align-items:center; gap:3px; white-space:nowrap;}
+.cr-cel-vbc{font-size:11.5px; color:var(--text-muted);}
 .cr-cli-filtros{margin:6px 0 12px;}
 .datatable tr.cr-total td{font-weight:700; border-top:2px solid var(--border-strong); background:var(--surface-2);}
 .cr-cad-table input{
