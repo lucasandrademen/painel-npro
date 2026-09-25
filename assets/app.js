@@ -1395,90 +1395,114 @@ function renderCross(){
 }
 
 /* ============================== TAB: COBERTURA ============================== */
+/* Cobertura e Penetração — sempre de UM mês e pelo par cliente (Sold) × vendedor:
+   um cliente conta para o vendedor que vendeu para ele naquele mês (o mesmo cliente
+   pode contar para dois vendedores, um em Food e outro em Bebidas).
+   - Ativos = pares cliente×vendedor com alguma compra no mês (NPRO, Bebidas ou Varejo).
+   - Penetração = pares que compraram a categoria ÷ ativos.
+   - Cobertura = pares da CARTEIRA (aba BASE) que compraram a categoria ÷ carteira.
+   Compra = faturamento somado > 0 no mês. */
+function cobMesAtual(){
+  const el = document.getElementById('cob-mes');
+  if(el && !el.value) el.value = fmtDateOnly(scHojeMs()).slice(0,7);
+  return el ? el.value : fmtDateOnly(scHojeMs()).slice(0,7);
+}
 function renderCobertura(){
   const state = filterState.cobertura;
-  const cH = PERIOD.cross.headers;
-  const rows = filterCliRows(PERIOD.cross.rows, cH, state, false);
-  const iNPRO=cH.indexOf('Compra NPRO'), iBeb=cH.indexOf('Compra Bebidas'), iOport=cH.indexOf('Oportunidade'), iVendCli=cH.indexOf('Vendedor');
-  const ativos = rows.filter(r=>r[iOport]!=='Sem compras no período');
-  // Penetração: % dos clientes que JÁ COMPRARAM algo no período (denominador = ativos).
-  const penNpro = ativos.length ? ativos.filter(r=>r[iNPRO]==='Sim').length/ativos.length : 0;
-  const penBeb = ativos.length ? ativos.filter(r=>r[iBeb]==='Sim').length/ativos.length : 0;
-  const penAmbas = ativos.length ? ativos.filter(r=>r[iNPRO]==='Sim'&&r[iBeb]==='Sim').length/ativos.length : 0;
-  // Cobertura: % sobre o UNIVERSO TOTAL da carteira (cadastro completo em
-  // _Base_Clientes — DATA.clientes — comprando ou não no período), respeitando
-  // os mesmos filtros de Vendedor/Razão Social/Sold usados acima.
-  const universo = (DATA.clientes||[]).filter(c => {
-    const sold = c[0], razao = c[1], vcod = c[2]!=null?String(c[2]):null;
-    if(state.vendedor && state.vendedor!=='(Todos)' && vcod!==state.vendedor) return false;
-    if(state.razaosocial && state.razaosocial!=='(Todos)' && razao!==state.razaosocial) return false;
-    if(state.sold && state.sold!=='(Todos)' && String(sold)!==state.sold) return false;
+  const mesKey = cobMesAtual();
+  const passa = (vend, sold) => {
+    if(state.vendedor && state.vendedor!=='(Todos)' && vend!==state.vendedor) return false;
+    if(state.sold && state.sold!=='(Todos)' && sold!==state.sold) return false;
+    if(state.razaosocial && state.razaosocial!=='(Todos)'){
+      const cm = clienteMetaMap && clienteMetaMap.get(sold);
+      if(!cm || cm.razaoSocial!==state.razaosocial) return false;
+    }
     return true;
-  });
-  const universoTotal = universo.length;
-  const covNpro = universoTotal ? ativos.filter(r=>r[iNPRO]==='Sim').length/universoTotal : 0;
-  const covBeb = universoTotal ? ativos.filter(r=>r[iBeb]==='Sim').length/universoTotal : 0;
-  const covAmbas = universoTotal ? ativos.filter(r=>r[iNPRO]==='Sim'&&r[iBeb]==='Sim').length/universoTotal : 0;
+  };
+
+  // Compras do mês por par vendedor|sold.
+  const pares = new Map();
+  for(const r of (baseVendasParsed||[])){
+    if(!r.dateStr || r.dateStr.slice(0,7)!==mesKey || r.sold==null || r.vendedor==null) continue;
+    if(!passa(r.vendedor, r.sold)) continue;
+    const k = r.vendedor + '|' + r.sold;
+    let p = pares.get(k);
+    if(!p){ p = {vend:r.vendedor, sold:r.sold, npro:0, beb:0, total:0, grupos:new Map(), familias:new Map()}; pares.set(k, p); }
+    p.total += r.fat;
+    if(r.origem==='NPRO') p.npro += r.fat; else if(r.origem==='BEBIDAS') p.beb += r.fat;
+    if(r.grupo) p.grupos.set(r.grupo, (p.grupos.get(r.grupo)||0) + r.fat);
+    if(r.familia) p.familias.set(r.familia, (p.familias.get(r.familia)||0) + r.fat);
+  }
+  const ativos = Array.from(pares.values()).filter(p => p.total>0);
+  const conta = (arr, f) => arr.filter(f).length;
+  const nNpro = p => p.npro>0, nBeb = p => p.beb>0, nAmbas = p => p.npro>0 && p.beb>0;
+
+  // Universo = carteira da aba BASE (pares Sold×Setor); sem ela, quem já comprou (DATA.clientes).
+  const cart = scDados().carteira;
+  const universo = (cart.length ? cart.map(c => ({vend:c.setor, sold:c.sold}))
+    : (DATA.clientes||[]).map(c => ({vend: c[2]!=null ? String(c[2]) : null, sold: String(c[0])})))
+    .filter(u => u.vend && passa(u.vend, u.sold));
+  const doMes = u => pares.get(u.vend + '|' + u.sold);
+  const cobCount = f => universo.filter(u => { const p = doMes(u); return p && f(p); }).length;
+  const uniTotal = universo.length;
+  const naCarteira = new Set(universo.map(u => u.vend + '|' + u.sold));
+  const ativosForaCarteira = ativos.filter(p => !naCarteira.has(p.vend + '|' + p.sold)).length;
+  const nomeMes = mesKey.slice(5,7) + '/' + mesKey.slice(0,4);
+
   renderKPIs('kpi-cobertura', [
-    {label:'Clientes Ativos no Período', value:fmtInt(ativos.length), note:`de ${fmtInt(universoTotal)} na carteira`},
-    {label:'Penetração NPRO', value:fmtPct(penNpro), note:'% dos clientes ativos', tone:'good'},
-    {label:'Penetração Bebidas', value:fmtPct(penBeb), note:'% dos clientes ativos', tone:'warning'},
-    {label:'Penetração Ambas', value:fmtPct(penAmbas), note:'% dos clientes ativos'},
-    {label:'Cobertura NPRO', value:fmtPct(covNpro), note:`% da carteira (${fmtInt(universoTotal)})`, tone:'good'},
-    {label:'Cobertura Bebidas', value:fmtPct(covBeb), note:`% da carteira (${fmtInt(universoTotal)})`, tone:'warning'},
-    {label:'Cobertura Ambas', value:fmtPct(covAmbas), note:`% da carteira (${fmtInt(universoTotal)})`},
+    {label:'Clientes Ativos no Mês', value:fmtInt(ativos.length), note:`pares cliente×vendedor · ${nomeMes}`},
+    {label:'Penetração NPRO', value:fmtPct(ativos.length ? conta(ativos, nNpro)/ativos.length : 0), note:'% dos ativos', tone:'good'},
+    {label:'Penetração Bebidas', value:fmtPct(ativos.length ? conta(ativos, nBeb)/ativos.length : 0), note:'% dos ativos', tone:'warning'},
+    {label:'Penetração Ambas', value:fmtPct(ativos.length ? conta(ativos, nAmbas)/ativos.length : 0), note:'% dos ativos'},
+    {label:'Cobertura NPRO', value:fmtPct(uniTotal ? cobCount(nNpro)/uniTotal : 0), note:`% da carteira (${fmtInt(uniTotal)})`, tone:'good'},
+    {label:'Cobertura Bebidas', value:fmtPct(uniTotal ? cobCount(nBeb)/uniTotal : 0), note:`% da carteira (${fmtInt(uniTotal)})`, tone:'warning'},
+    {label:'Cobertura Ambas', value:fmtPct(uniTotal ? cobCount(nAmbas)/uniTotal : 0), note:`% da carteira (${fmtInt(uniTotal)})`},
   ]);
-  // Mapa de calor recalculado a partir das MESMAS linhas já filtradas acima
-  // (reage a Vendedor/Razão Social/Sold e ao período selecionado).
-  const byVend = new Map();
-  rows.forEach(r => {
-    const v = r[iVendCli];
-    if(v==null || r[iOport]==='Sem compras no período') return;
-    if(!byVend.has(v)) byVend.set(v, {ativos:0, npro:0, beb:0, ambas:0});
-    const b = byVend.get(v);
-    b.ativos++;
-    if(r[iNPRO]==='Sim') b.npro++;
-    if(r[iBeb]==='Sim') b.beb++;
-    if(r[iNPRO]==='Sim' && r[iBeb]==='Sim') b.ambas++;
-  });
+
+  // Penetração por vendedor (mapa de calor) — ativos do próprio vendedor no mês.
   const rowLabels = [], matrix = [];
   (DATA.vendedores||[]).forEach(v => {
     if(state.vendedor && state.vendedor!=='(Todos)' && v!==state.vendedor) return;
-    const b = byVend.get(v);
+    const av = ativos.filter(p => p.vend===v);
     rowLabels.push(v);
-    matrix.push(b && b.ativos ? [b.npro/b.ativos, b.beb/b.ativos, b.ambas/b.ativos] : [null,null,null]);
+    matrix.push(av.length ? [conta(av, nNpro)/av.length, conta(av, nBeb)/av.length, conta(av, nAmbas)/av.length] : [null,null,null]);
   });
-  const colDefs = [{label:'Penetração NPRO'},{label:'Penetração Bebidas'},{label:'Penetração Ambas'}];
-  heatGrid('heat-cobertura', rowLabels, colDefs, matrix, {format:fmtPct});
+  heatGrid('heat-cobertura', rowLabels, [{label:'Penetração NPRO'},{label:'Penetração Bebidas'},{label:'Penetração Ambas'}], matrix, {format:fmtPct});
   const oldFoot = document.querySelector('#heat-cobertura + .footnote');
   if(oldFoot) oldFoot.remove();
   document.querySelector('#heat-cobertura').insertAdjacentHTML('afterend',
-    `<div class="footnote">Este mapa já reage aos filtros de Vendedor/Razão Social/Sold acima e ao período selecionado no topo da página (cada célula é o % dos clientes ATIVOS daquele vendedor, dentro do recorte atual, que compram NPRO/Bebidas/Ambas). As tabelas de Grupo e Família abaixo consideram o período selecionado mas não os filtros de Vendedor/Razão Social/Sold.</div>`);
-  const coberturaVendorRows = (DATA.vendedores||[]).filter(v => !state.vendedor || state.vendedor==='(Todos)' || v===state.vendedor).map(v => {
-    const uni = (DATA.clientes||[]).filter(c => c[2]!=null && String(c[2])===v).length;
-    const b = byVend.get(v) || {ativos:0, npro:0, beb:0, ambas:0};
-    return {vendedor:v, universo:uni, ativos:b.ativos,
-      covNpro: uni?b.npro/uni:0, covBeb: uni?b.beb/uni:0, covAmbas: uni?b.ambas/uni:0};
+    `<div class="footnote">Mês ${esc(nomeMes)}. Cada célula é o % dos clientes que compraram do vendedor no mês (pares cliente×vendedor) que levaram NPRO/Bebidas/Ambas.${ativosForaCarteira ? ` ${fmtInt(ativosForaCarteira)} par(es) ativo(s) não estão na carteira da aba BASE — entram na penetração, não na cobertura.` : ''}</div>`);
+
+  // Cobertura da carteira por vendedor.
+  const vendRows = (DATA.vendedores||[]).filter(v => !state.vendedor || state.vendedor==='(Todos)' || v===state.vendedor).map(v => {
+    const uv = universo.filter(u => u.vend===v);
+    const cov = f => uv.length ? uv.filter(u => { const p = doMes(u); return p && f(p); }).length/uv.length : 0;
+    return {vendedor:v, universo:uv.length, ativos: ativos.filter(p => p.vend===v).length,
+      cobertos: uv.filter(u => { const p = doMes(u); return p && p.total>0; }).length,
+      covNpro: cov(nNpro), covBeb: cov(nBeb), covAmbas: cov(nAmbas)};
   });
   makeTable('table-cobertura-vendedor', {
     headers: [
       {key:'vendedor', label:'Vendedor', align:'left', format:v=>esc(v)},
-      {key:'universo', label:'Carteira (total)', align:'right', format:fmtInt},
-      {key:'ativos', label:'Ativos no Período', align:'right', format:fmtInt},
+      {key:'universo', label:'Carteira', align:'right', format:fmtInt},
+      {key:'cobertos', label:'Carteira que comprou', align:'right', format:fmtInt},
+      {key:'ativos', label:'Ativos no mês', align:'right', format:fmtInt},
       {key:'covNpro', label:'Cobertura NPRO', align:'right', format:fmtPct},
       {key:'covBeb', label:'Cobertura Bebidas', align:'right', format:fmtPct},
       {key:'covAmbas', label:'Cobertura Ambas', align:'right', format:fmtPct},
     ],
-    rows: coberturaVendorRows, getRow:r=>r, searchable:false, pageSize:10, defaultSort:{key:'universo', dir:'desc'},
+    rows: vendRows, getRow:r=>r, searchable:false, pageSize:10, defaultSort:{key:'universo', dir:'desc'},
   });
-  makeTable('table-cobertura-grupo', {
-    headers: PERIOD.cobertura.grupo_headers.map((h,i)=>({key:'c'+i, label:h, align:i>0?'right':'left', format: i===1?fmtInt : i===2?fmtPct : (v=>esc(v))})),
-    rows: PERIOD.cobertura.grupo, getRow:r=>({c0:r[0],c1:r[1],c2:r[2]}), defaultSort:{key:'c2',dir:'desc'}, pageSize:10, searchable:false,
-  });
-  makeTable('table-cobertura-familia', {
-    headers: PERIOD.cobertura.familia_headers.map((h,i)=>({key:'c'+i, label:h, align:i>0?'right':'left', format: i===1?fmtInt : i===2?fmtPct : (v=>esc(v))})),
-    rows: PERIOD.cobertura.familia, getRow:r=>({c0:r[0],c1:r[1],c2:r[2]}), defaultSort:{key:'c2',dir:'desc'}, pageSize:10, searchable:false,
-  });
+
+  // Penetração por Grupo / Família — pares que compraram ÷ ativos, no mês e nos filtros.
+  function porChave(campo){
+    const m = new Map();
+    ativos.forEach(p => p[campo].forEach((fat, k) => { if(fat>0) m.set(k, (m.get(k)||0) + 1); }));
+    return Array.from(m.entries()).map(([k, n]) => ({c0:k, c1:n, c2: ativos.length ? n/ativos.length : 0}));
+  }
+  const hdr = rot => [{key:'c0', label:rot, align:'left', format:v=>esc(v)}, {key:'c1', label:'Clientes (cliente×vendedor)', align:'right', format:fmtInt}, {key:'c2', label:'% dos ativos', align:'right', format:fmtPct}];
+  makeTable('table-cobertura-grupo', {headers: hdr('Grupo'), rows: porChave('grupos'), getRow:r=>r, defaultSort:{key:'c2',dir:'desc'}, pageSize:10, searchable:false});
+  makeTable('table-cobertura-familia', {headers: hdr('Família'), rows: porChave('familias'), getRow:r=>r, defaultSort:{key:'c2',dir:'desc'}, pageSize:10, searchable:false});
 }
 
 /* ============================== TAB: PAINEL EXECUTIVO ============================== */
@@ -2703,6 +2727,7 @@ const PRINT_CONFIG = {
   },
   cobertura: {
     title:'Cobertura e Penetração por Categoria', orientation:'landscape', kpi:'kpi-cobertura',
+    periodLabel: () => { const m = cobMesAtual(); return `mês ${m.slice(5,7)}/${m.slice(0,4)} (cliente × vendedor)`; },
     blocks:[{id:'heat-cobertura', title:'Penetração por Vendedor × Categoria'}],
     tables:[
       {id:'table-cobertura-vendedor', title:'Cobertura da Carteira por Vendedor'},
@@ -5217,6 +5242,7 @@ function init(){
   buildFilterBar('giro','prodvend','prodvend');
   buildFilterBar('cross','cli','cli');
   buildFilterBar('cobertura','cli2','cli2');
+  (function(){ const m = document.getElementById('cob-mes'); if(m){ cobMesAtual(); m.addEventListener('change', renderCobertura); } })();
   buildFilterBar('painel','painelvend','painelvend');
   initMapaVenda();
   initNrab();

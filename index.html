@@ -216,18 +216,19 @@
 
   <section class="tabpanel" data-tab="cobertura">
     <div class="section-title">Cobertura e Penetração por Categoria</div>
-    <div class="section-note">Dois conceitos, com denominadores diferentes: <b>Penetração</b> = compradores da categoria ÷ clientes ativos no período (só quem comprou algo). <b>Cobertura</b> = compradores da categoria ÷ universo total da carteira (cadastro completo de clientes por vendedor, tenham comprado ou não). Para metas de cobertura/comissão, confirme se este universo (cadastro em "_Base_Clientes") é o mesmo denominador oficial usado pela empresa.</div>
+    <div class="section-note">Tudo é de <b>um mês</b> e pelo par <b>cliente (Sold) × vendedor</b>: o cliente conta para o vendedor que vendeu para ele no mês. <b>Penetração</b> = clientes que compraram a categoria ÷ clientes ativos do mês (compraram qualquer coisa, inclusive Varejo). <b>Cobertura</b> = clientes da carteira (aba BASE) que compraram a categoria ÷ carteira. Esta seção usa o mês abaixo, não o "Período analisado" do topo.</div>
+    <div class="mapa-lookup"><div><span class="flabel">Mês</span><input type="month" id="cob-mes" aria-label="Mês da cobertura"></div></div>
     <div class="filterbar" data-fbar="cli2"></div>
     <div class="active-chips" id="chips-cobertura"></div>
     <div class="kpi-row" id="kpi-cobertura"></div>
     <div class="panel" style="margin-bottom:18px;">
       <h3>Penetração por Vendedor × Categoria</h3>
-      <div class="panel-sub">% dos clientes ATIVOS daquele vendedor (dentro do recorte atual) que compram NPRO/Bebidas/Ambas. Reage aos filtros de Vendedor/Razão Social/Sold acima e ao período selecionado no topo da página.</div>
+      <div class="panel-sub">% dos clientes que compraram do vendedor no mês que levaram NPRO/Bebidas/Ambas. Reage ao mês e aos filtros de Vendedor/Razão Social/Sold.</div>
       <div id="heat-cobertura"></div>
     </div>
     <div class="panel" style="margin-bottom:18px;">
       <h3>Cobertura da Carteira por Vendedor</h3>
-      <div class="panel-sub">% do universo TOTAL de clientes cadastrados para cada vendedor (compradores ou não) que compram NPRO/Bebidas/Ambas no período selecionado.</div>
+      <div class="panel-sub">% da carteira de cada vendedor (aba BASE) que comprou NPRO/Bebidas/Ambas dele no mês.</div>
       <div id="table-cobertura-vendedor"></div>
     </div>
     <div class="grid-2b">
@@ -760,6 +761,6 @@
 </div>
 
 
-<script src="assets/app.js?v=33" defer></script>
+<script src="assets/app.js?v=34" defer></script>
 </body>
 </html>
