@@ -2722,7 +2722,8 @@ const PRINT_CONFIG = {
     headerExtra: () => {
       const setor = document.getElementById('cr-setor').value, mes = document.getElementById('cr-mes').value;
       return `<div class="print-filters-row"><span class="print-filter-chip"><b>Setor:</b> ${esc(crSetorLabel(setor))}</span>`
-        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span></div>`;
+        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span>`
+        + `<span class="cr-print-crescer"><img src="assets/logo-crescer-brokers.png" alt="Nestlé Crescer Brokers"></span></div>`;
     },
   },
   semcompra: {
@@ -4498,6 +4499,9 @@ function renderCrescer(){
   setorEl.value = opcoes.includes(atual) ? atual : CR_SETOR_TOTAL;
   const setor = setorEl.value;
   const {cobertura, vbc} = res.linhas(setor);
+  const nomeMes = new Date(Date.UTC(Number(mesKey.slice(0,4)), Number(mesKey.slice(5,7))-1, 1)).toLocaleDateString('pt-BR', {month:'long', timeZone:'UTC'});
+  document.getElementById('cr-banner-titulo').textContent = `Acompanhamento Categorias Crescer + · ${nomeMes.toUpperCase()} ${mesKey.slice(2,4)} NPRO`;
+  document.getElementById('cr-banner-sub').textContent = crSetorLabel(setor);
   const cal = res.cal;
 
   const cobFeitas = cobertura.filter(l => l.pct!=null && l.pct>=1).length;

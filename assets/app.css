@@ -276,6 +276,20 @@ a{color:var(--accent-2);}
   font-family:var(--font-body); font-size:13px; font-weight:600; color:var(--text);
   background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:7px 10px; max-width:100%;
 }
+.cr-banner{
+  display:flex; align-items:center; gap:14px 20px; flex-wrap:wrap;
+  background:linear-gradient(120deg, var(--rail) 0%, #0A2A5C 100%); color:#fff;
+  border-radius:var(--radius); padding:12px 20px; margin-bottom:14px;
+}
+.cr-banner-nestle{flex-shrink:0;}
+.cr-banner-nestle img{height:34px;}
+.cr-banner-texto{flex:1 1 220px; min-width:0;}
+.cr-banner-titulo{font-family:var(--font-display); font-weight:800; font-size:clamp(15px, 1.6vw, 22px); letter-spacing:.3px; text-transform:uppercase; line-height:1.2;}
+.cr-banner-sub{font-size:12.5px; color:var(--wave); margin-top:3px; font-weight:600;}
+.cr-banner-crescer{height:74px; width:auto; flex-shrink:0; display:block;}
+@media (max-width:600px){ .cr-banner-crescer{height:56px;} .cr-banner-nestle img{height:28px;} }
+.cr-print-crescer{margin-left:auto; display:inline-flex; align-items:center; background:var(--rail); border-radius:8px; padding:4px 8px;}
+.cr-print-crescer img{height:40px; width:auto; display:block;}
 .cr-info{margin:-6px 0 14px;}
 .datatable tr.cr-total td{font-weight:700; border-top:2px solid var(--border-strong); background:var(--surface-2);}
 .cr-cad-table input{
