@@ -92,6 +92,7 @@ const TABS = [
   {id:"meta20", label:"Meta 20+"},
   {id:"semcompra", label:"Clientes sem Compra"},
   {id:"crescer", label:"Crescer +"},
+  {id:"brasileirao", label:"Brasileirão"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2735,6 +2736,18 @@ const PRINT_CONFIG = {
       return visivel ? null : 'Selecione, na lista de clientes, um SOLD com NRAB cadastrada antes de imprimir — o relatório desta aba é sempre de um cliente.';
     },
   },
+  brasileirao: {
+    title:'Brasileirão NPRO', orientation:'landscape', kpi:'kpi-br', blocks:[], hideFilters:true,
+    tables:[{id:'table-br-ranking', title:'Ranking'}, {id:'table-br-cob', title:'Cobertura'}, {id:'table-br-vbc', title:'VBC'},
+      {id:'table-br-cob-vend', title:'Cobertura por Setor'}, {id:'table-br-vbc-vend', title:'VBC por Setor'},
+      {id:'table-br-cli', title:'Por cliente'}],
+    periodLabel: () => document.getElementById('br-info').textContent,
+    headerExtra: () => {
+      const st = document.getElementById('br-setor').value, mes = document.getElementById('br-mes').value;
+      return `<div class="print-filters-row"><span class="print-filter-chip"><b>Setor:</b> ${esc(brLabel(st))}</span>`
+        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span></div>`;
+    },
+  },
   crescer: {
     title:'Crescer + — Resumo', orientation:'landscape', kpi:'kpi-crescer', blocks:[], hideFilters:true,
     tables:[{id:'table-crescer-cob', title:'Cobertura'}, {id:'table-crescer-vbc', title:'VBC'},
@@ -4712,6 +4725,360 @@ function initCrescer(){
   RENDERERS.crescer = renderCrescer;
 }
 
+/* ============================================================================
+   BRASILEIRÃO NPRO — módulo isolado
+   ----------------------------------------------------------------------------
+   Réplica da planilha "BRASILEIRÃO NPRO": Ranking Mensal, RESUMO, COBERTURAS,
+   VBC e Por Cliente, calculados a partir da planilha de Vendas (baseVendas) e
+   da carteira (aba BASE). Tudo é por SUBCATEGORIA (a "Família" das vendas,
+   ex.: "01B-TOP LACTEOS LATA E BAG").
+   - Cobertura efetiva = nº de clientes (Sold) que compraram a subcategoria no
+     mês com o Setor. Meta do Setor = ROUNDUP(meta da empresa ÷ base total ×
+     base do Setor), onde a base é o nº de clientes que compraram NPRO com o
+     Setor nos 3 meses anteriores ao mês (a aba Plan2 da planilha). Nas
+     subcategorias de Bebidas (07x) a meta de cobertura é por Setor.
+   - VBC efetivo = faturamento da subcategoria no mês com o Setor. Meta do
+     Setor = meta da empresa × participação do Setor no VBC do trimestre
+     anterior, somando todas as compras dos clientes da carteira do Setor
+     (aba "Cálculo Meta PC": sempre os 3 meses antes do mês analisado). Nas 07x
+     a meta de VBC também é por Setor.
+   - Pontos por subcategoria: 5 se atingiu 100%, 2 se atingiu 60%, senão 0;
+     pontuação final = pontos × 1,15. Ranking = pontos finais de VBC + Cobertura.
+   Metas do mês são um cadastro publicado para todos (DATA.brasileirao).
+   ========================================================================= */
+
+const BR_SUBCATS = ['01B-TOP LACTEOS LATA E BAG','01D-CONDENSADOS INTEGRAL BAG','01F-CONDENSADOS SEMI-DESNATADO BAG',
+  '02A-COBERTURA REGULAR NESTLE 500G - 1KG','02B-COBERTURA REGULAR NESTLE 2KG','02E-PASTAS','03A-MAGGI CALDOS',
+  '03B-MAGGI TEMPEROS','06A-INGREDIENTE ACHOCOLATADO','07A-CAFE GRAO NESCAFE','07B-CAFE MOIDO NESCAFE',
+  '07F-ACHOCOLATADO KIT KAT','07H-CAPPUCCINO NESCAFE'];
+const BR_POR_SETOR = sub => sub.startsWith('07'); // Bebidas: meta digitada por Setor
+const BR_COR_PREFIXO = {'01':'cr-c-lac','02':'cr-c-cho','03':'cr-c-cul','06':'cr-c-std','07':'cr-c-sol'};
+const brCor = sub => BR_COR_PREFIXO[sub.slice(0,2)] || '';
+const brCurto = sub => sub.slice(0,3);
+const BR_MULT = 1.15;
+const BR_TOTAL = '1';
+// Metas de setembro/2026 copiadas da planilha — valem até alguém salvar o cadastro.
+const BR_SEMENTE = {
+  '2026-09': {
+    cobEmpresa: {'01B-TOP LACTEOS LATA E BAG':183,'01D-CONDENSADOS INTEGRAL BAG':18,'01F-CONDENSADOS SEMI-DESNATADO BAG':6,
+      '02A-COBERTURA REGULAR NESTLE 500G - 1KG':21,'02B-COBERTURA REGULAR NESTLE 2KG':21,'02E-PASTAS':36,'03A-MAGGI CALDOS':116,
+      '03B-MAGGI TEMPEROS':49,'06A-INGREDIENTE ACHOCOLATADO':42},
+    cobSetor: {
+      '505': {'07A-CAFE GRAO NESCAFE':8,'07B-CAFE MOIDO NESCAFE':1,'07F-ACHOCOLATADO KIT KAT':1,'07H-CAPPUCCINO NESCAFE':8},
+      '510': {'07A-CAFE GRAO NESCAFE':35,'07B-CAFE MOIDO NESCAFE':6,'07F-ACHOCOLATADO KIT KAT':6,'07H-CAPPUCCINO NESCAFE':37},
+    },
+    vbcEmpresa: {'01B-TOP LACTEOS LATA E BAG':799565,'01D-CONDENSADOS INTEGRAL BAG':336337,'01F-CONDENSADOS SEMI-DESNATADO BAG':11040,
+      '02A-COBERTURA REGULAR NESTLE 500G - 1KG':21563,'02B-COBERTURA REGULAR NESTLE 2KG':44025,'02E-PASTAS':14807,'03A-MAGGI CALDOS':33779,
+      '03B-MAGGI TEMPEROS':24996,'06A-INGREDIENTE ACHOCOLATADO':40000},
+    vbcSetor: {
+      '505': {'07A-CAFE GRAO NESCAFE':5779,'07B-CAFE MOIDO NESCAFE':1197,'07F-ACHOCOLATADO KIT KAT':732,'07H-CAPPUCCINO NESCAFE':9446},
+      '510': {'07A-CAFE GRAO NESCAFE':37275,'07B-CAFE MOIDO NESCAFE':7721,'07F-ACHOCOLATADO KIT KAT':4720,'07H-CAPPUCCINO NESCAFE':60922},
+    },
+  },
+};
+function brCadastroDoMes(mesKey){
+  const salvo = DATA.brasileirao && DATA.brasileirao.meses && DATA.brasileirao.meses[mesKey];
+  if(salvo) return {cad: salvo, origem: 'salvo'};
+  if(BR_SEMENTE[mesKey]) return {cad: BR_SEMENTE[mesKey], origem: 'semente'};
+  return {cad: {cobEmpresa:{}, cobSetor:{}, vbcEmpresa:{}, vbcSetor:{}}, origem: 'vazio'};
+}
+function brPontos(pct){ return pct==null ? 0 : pct>=1 ? 5 : pct>=0.6 ? 2 : 0; }
+
+/* ---------------------- Cálculo ---------------------- */
+function brCalcular(mesKey){
+  const {cad, origem} = brCadastroDoMes(mesKey);
+  const cal = crCalendario(mesKey);
+  const iniISO = fmtDateOnly(cal.iniMs), ateISO = fmtDateOnly(cal.ateMs);
+  const antISO = cal.diaAnteriorMs!=null ? fmtDateOnly(cal.diaAnteriorMs) : null;
+  const [ano, mes] = mesKey.split('-').map(Number);
+  const triIni = fmtDateOnly(Date.UTC(ano, mes-4, 1)), triFim = fmtDateOnly(Date.UTC(ano, mes-1, 0));
+  const setores = crSetores();
+  const subs = new Set(BR_SUBCATS);
+  const {carteira} = scDados();
+  const carteiraDoSold = new Map();
+  carteira.forEach(c => { if(!carteiraDoSold.has(c.sold)) carteiraDoSold.set(c.sold, []); carteiraDoSold.get(c.sold).push(c.setor); });
+
+  const compradores = new Map(), compradoresAnt = new Map(), vbcMes = new Map(), vbcTri = new Map();
+  const baseSetor = new Map(); // Setor -> Set(Sold) que comprou NPRO no trimestre
+  const porCliente = new Map(); // Setor|Sold -> {sub: faturamento}
+  for(const r of (DATA.baseVendas||[])){
+    const iso = r[3]; if(!iso || r[1]==null) continue;
+    const setor = String(r[1]), sold = String(r[0]), sub = r[6], fat = Number(r[9])||0;
+    const noTri = iso>=triIni && iso<=triFim;
+    if(noTri && r[7]==='NPRO'){ let b = baseSetor.get(setor); if(!b){ b = new Set(); baseSetor.set(setor, b); } b.add(sold); }
+    if(!subs.has(sub)) continue;
+    if(noTri) (carteiraDoSold.get(sold)||[]).forEach(st => { const k = st+'|'+sub; vbcTri.set(k, (vbcTri.get(k)||0) + fat); });
+    if(iso<iniISO || iso>ateISO) continue;
+    const k = setor + '|' + sub;
+    vbcMes.set(k, (vbcMes.get(k)||0) + fat);
+    let c = compradores.get(k); if(!c){ c = new Set(); compradores.set(k, c); } c.add(sold);
+    if(antISO && iso<=antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
+    const kc = setor + '|' + sold;
+    let o = porCliente.get(kc); if(!o){ o = {}; porCliente.set(kc, o); }
+    o[sub] = (o[sub]||0) + fat;
+  }
+  const num = v => Number(v)||0;
+  const base = st => (baseSetor.get(st) || new Set()).size;
+  const baseTotal = setores.reduce((s, st) => s + base(st), 0);
+  const triTotal = sub => setores.reduce((s, st) => s + num(vbcTri.get(st+'|'+sub)), 0);
+
+  function metaCob(st, sub){
+    if(BR_POR_SETOR(sub)) return num(((cad.cobSetor||{})[st]||{})[sub]);
+    const emp = num((cad.cobEmpresa||{})[sub]);
+    return baseTotal>0 ? Math.ceil(emp/baseTotal*base(st)) : 0;
+  }
+  function metaVbc(st, sub){
+    if(BR_POR_SETOR(sub)) return num(((cad.vbcSetor||{})[st]||{})[sub]);
+    const emp = num((cad.vbcEmpresa||{})[sub]), tt = triTotal(sub);
+    return tt>0 ? num(vbcTri.get(st+'|'+sub))/tt*emp : 0;
+  }
+  // Linhas de um Setor (ou do total: soma dos Setores, com % e pontos sobre a soma).
+  function linhas(st){
+    const lista = st===BR_TOTAL ? setores : [st];
+    const soma = f => lista.reduce((s, x) => s + f(x), 0);
+    const cobertura = BR_SUBCATS.map(sub => {
+      const meta = soma(x => metaCob(x, sub)), efetivo = soma(x => (compradores.get(x+'|'+sub)||new Set()).size);
+      const ant = soma(x => (compradoresAnt.get(x+'|'+sub)||new Set()).size);
+      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
+      return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal, ant, evolucao: efetivo-ant,
+        pts, final: pts*BR_MULT, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
+    });
+    const vbc = BR_SUBCATS.map(sub => {
+      const meta = soma(x => metaVbc(x, sub)), efetivo = soma(x => num(vbcMes.get(x+'|'+sub)));
+      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
+      return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal,
+        tendencia: cal.decorridos ? efetivo/cal.decorridos*cal.uteis : null,
+        pts, final: pts*BR_MULT, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
+    });
+    const ptsCob = cobertura.reduce((s, l) => s + l.pts, 0), ptsVbc = vbc.reduce((s, l) => s + l.pts, 0);
+    return {cobertura, vbc, ptsCob, ptsVbc, finalCob: ptsCob*BR_MULT, finalVbc: ptsVbc*BR_MULT,
+      base: soma(base), total: (ptsCob+ptsVbc)*BR_MULT};
+  }
+  return {cad, origem, cal, setores, linhas, porCliente, triIni, triFim};
+}
+
+/* ---------------------- Render ---------------------- */
+const brLabel = st => st===BR_TOTAL ? '1 (Total)' : String(st);
+const brPtsFmt = v => v==null ? '—' : (Math.round(v*100)/100).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+function brSubTag(sub){ return `<span class="cr-cat-tag ${brCor(sub)}">${esc(sub)}</span>`; }
+
+function brRenderRanking(res){
+  const vend = res.setores.filter(st => st!=='555').map(st => Object.assign({st}, res.linhas(st)));
+  vend.sort((a, b) => b.total - a.total || a.st.localeCompare(b.st));
+  const tot = res.linhas(BR_TOTAL);
+  const rows = vend.map((v, i) => ({pos: (i+1)+'º', setor: v.st, vbc: v.finalVbc, cob: v.finalCob, total: v.total, lider: i===0}));
+  crTabela('table-br-ranking', [
+    {key:'pos', label:'Colocação', format: (v, r) => r.lider ? `<span class="br-lider">🏆 ${esc(v)}</span>` : esc(v)},
+    {key:'setor', label:'Setor'},
+    {key:'vbc', label:'VBC', align:'right', format: brPtsFmt},
+    {key:'cob', label:'Cobertura', align:'right', format: brPtsFmt},
+    {key:'total', label:'Total', align:'right', format: v => `<b>${brPtsFmt(v)}</b>`},
+  ], rows, {pos:'Supervisor 500 / Empresa 1', setor:'', vbc: tot.finalVbc, cob: tot.finalCob, total: tot.total});
+}
+
+function brRenderResumo(res, st){
+  const l = res.linhas(st), cal = res.cal;
+  const possib = BR_SUBCATS.length*5;
+  renderKPIs('kpi-br', [
+    {label:'TT PTS (final)', value: brPtsFmt(l.total), note: `pontos × ${String(BR_MULT).replace('.', ',')}`},
+    {label:'Cobertura — pontos', value: `${l.ptsCob} de ${possib}`, note: `final ${brPtsFmt(l.finalCob)}`},
+    {label:'VBC — pontos', value: `${l.ptsVbc} de ${possib}`, note: `final ${brPtsFmt(l.finalVbc)}`},
+    {label:'Ideal do dia', value: fmtPct(cal.ideal), note: `${cal.decorridos} de ${cal.uteis} dias úteis · faltam ${cal.restantes}`},
+    {label:'Base de clientes', value: fmtInt(l.base), note: 'compraram NPRO no trimestre anterior'},
+  ]);
+  const pctFmt = v => v==null ? '—' : fmtPct(v);
+  const tag = v => v==='TOTAL' ? 'TOTAL' : brSubTag(v);
+  const soma = (rows, k) => rows.reduce((s, r) => s + (Number(r[k])||0), 0);
+  crTabela('table-br-cob', [
+    {key:'sub', label:'Subcategoria', format: tag},
+    {key:'meta', label:'Meta', align:'right', format: fmtInt},
+    {key:'efetivo', label:'Efetivo', align:'right', format: fmtInt},
+    {key:'saldo', label:'Saldo', align:'right', format: fmtInt},
+    {key:'pct', label:'%', align:'right', format: pctFmt},
+    {key:'ok', label:'Ideal', align:'center', format: (v, r) => r.sub==='TOTAL' ? fmtInt(v) : crOkPill(v, r.pct)},
+    {key:'ant', label:'Efet. dia anterior', align:'right', format: fmtInt},
+    {key:'evolucao', label:'Evolução', align:'right', format: fmtInt},
+    {key:'pts', label:'Pontos', align:'right', format: fmtInt},
+    {key:'final', label:'Pontuação final', align:'right', format: brPtsFmt},
+    {key:'objDia', label:'Obj. por dia', align:'right', format: fmtInt},
+  ], l.cobertura, {sub:'TOTAL', meta: soma(l.cobertura,'meta'), efetivo: soma(l.cobertura,'efetivo'), saldo: soma(l.cobertura,'saldo'),
+    pct: null, ok: l.cobertura.filter(x => x.ok).length, ant: soma(l.cobertura,'ant'), evolucao: soma(l.cobertura,'evolucao'),
+    pts: l.ptsCob, final: l.finalCob, objDia: soma(l.cobertura,'objDia')});
+  const tv = {sub:'TOTAL', meta: soma(l.vbc,'meta'), efetivo: soma(l.vbc,'efetivo'), saldo: soma(l.vbc,'saldo'),
+    tendencia: soma(l.vbc,'tendencia'), pts: l.ptsVbc, final: l.finalVbc, objDia: soma(l.vbc,'objDia')};
+  tv.pct = tv.meta>0 ? tv.efetivo/tv.meta : null; tv.ok = tv.pct!=null && tv.pct>=cal.ideal;
+  crTabela('table-br-vbc', [
+    {key:'sub', label:'Subcategoria', format: tag},
+    {key:'meta', label:'Meta', align:'right', format: fmtBRL0},
+    {key:'efetivo', label:'Efetivo', align:'right', format: fmtBRL0},
+    {key:'saldo', label:'Saldo', align:'right', format: fmtBRL0},
+    {key:'pct', label:'%', align:'right', format: pctFmt},
+    {key:'tendencia', label:'Tendência', align:'right', format: fmtBRL0},
+    {key:'ok', label:'Ideal', align:'center', format: (v, r) => crOkPill(v, r.pct)},
+    {key:'pts', label:'Pontos', align:'right', format: fmtInt},
+    {key:'final', label:'Pontuação final', align:'right', format: brPtsFmt},
+    {key:'objDia', label:'Obj. por dia', align:'right', format: fmtBRL0},
+  ], l.vbc, tv);
+}
+
+function brRenderPorVendedor(res){
+  const lista = res.setores.concat([BR_TOTAL]).map(st => ({st, l: res.linhas(st)}));
+  const pctFmt = v => v==null ? '—' : fmtPct(v);
+  function montar(containerId, bloco, fmt, finalKey){
+    const headers = [{key:'vendedor', label:'Setor'}];
+    if(bloco==='cobertura') headers.push({key:'base', label:'Base', align:'right', format: fmtInt});
+    BR_SUBCATS.forEach((sub, i) => {
+      const g = sub, cls = brCor(sub);
+      headers.push({key:'m'+i, label:'Meta', align:'right', grupo:g, cls, format:fmt},
+        {key:'e'+i, label:'Efet.', align:'right', grupo:g, cls, format:fmt},
+        {key:'p'+i, label:'%', align:'right', grupo:g, cls, format:pctFmt},
+        {key:'t'+i, label:'Pts', align:'right', grupo:g, cls, format:fmtInt});
+    });
+    headers.push({key:'pts', label:'Pontos', align:'right', format: fmtInt}, {key:'final', label:'Final', align:'right', format: v => `<b>${brPtsFmt(v)}</b>`});
+    const linha = ({st, l}) => {
+      const o = {vendedor: brLabel(st), base: l.base, pts: bloco==='cobertura' ? l.ptsCob : l.ptsVbc, final: l[finalKey]};
+      l[bloco].forEach((x, i) => { o['m'+i] = x.meta; o['e'+i] = x.efetivo; o['p'+i] = x.pct; o['t'+i] = x.pts; });
+      return o;
+    };
+    crTabela(containerId, headers, lista.filter(x => x.st!==BR_TOTAL).map(linha), linha(lista.find(x => x.st===BR_TOTAL)));
+  }
+  montar('table-br-cob-vend', 'cobertura', fmtInt, 'finalCob');
+  montar('table-br-vbc-vend', 'vbc', fmtBRL0, 'finalVbc');
+}
+
+function brRenderPorCliente(res, setorSel){
+  const {carteira} = scDados();
+  const val = id => (document.getElementById(id)||{}).value || '';
+  const filtro = val('br-cli-filtro'), canalSel = val('br-cli-canal'), diaSel = val('br-cli-dia');
+  const info = new Map(carteira.map(c => [c.setor + '|' + c.sold, c]));
+  const chaves = new Set();
+  carteira.forEach(c => chaves.add(c.setor + '|' + c.sold));
+  res.porCliente.forEach((_, k) => chaves.add(k));
+  const todos = [];
+  chaves.forEach(k => {
+    const [setor, sold] = k.split('|');
+    if(setor==='506' || (setorSel!==BR_TOTAL && setor!==setorSel)) return;
+    const cli = info.get(k), compras = res.porCliente.get(k) || {};
+    const o = {sold, setor, razao: (cli && cli.razao) || ((clienteMetaMap && clienteMetaMap.get(sold)) || {}).razaoSocial || '—',
+      canal: (cli && cli.canal) || '—', visita: cli && cli.dia ? SC_DIAS[cli.dia] : '—', dia: cli && cli.dia ? String(cli.dia) : '0',
+      ciclo: cli ? scCicloLabel(cli.ciclo) : '—', carteira: cli ? 'Sim' : 'Não', realizadas: 0, vbcTotal: 0};
+    BR_SUBCATS.forEach((sub, i) => {
+      const v = compras[sub] || 0, r = compras[sub]!==undefined;
+      o['r'+i] = r ? 1 : 0; o['v'+i] = v; if(r) o.realizadas++; o.vbcTotal += v;
+    });
+    todos.push(o);
+  });
+  const selCanal = document.getElementById('br-cli-canal');
+  const canais = Array.from(new Set(todos.map(o => o.canal))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  selCanal.innerHTML = '<option value="">(Todos)</option>' + canais.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  selCanal.value = canais.includes(canalSel) ? canalSel : '';
+  const rows = todos.filter(o => !(filtro==='sem' && o.realizadas>0) && !(filtro==='com' && o.realizadas===0)
+    && !(selCanal.value && o.canal!==selCanal.value) && !(diaSel && o.dia!==diaSel));
+  const headers = [
+    {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'setor', label:'Setor'},
+    {key:'canal', label:'Canal'}, {key:'visita', label:'Dia Vst'}, {key:'ciclo', label:'Ciclo'}, {key:'carteira', label:'Na carteira'},
+  ];
+  BR_SUBCATS.forEach((sub, i) => headers.push({key:'v'+i, label: brCurto(sub), align:'center', cls: brCor(sub), format: (v, r) =>
+    '<div class="cr-cel">' + (r['r'+i] ? pillHtml('R', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">S</span>') +
+    '<span class="cr-cel-vbc">' + (v ? fmtBRL0(v) : '—') + '</span></div>'}));
+  headers.push({key:'realizadas', label:'Subcat. realizadas', align:'right', format: v => `${v} de ${BR_SUBCATS.length}`},
+    {key:'vbcTotal', label:'VBC total', align:'right', format: fmtBRL0});
+  makeTable('table-br-cli', {headers, rows, getRow: x => x, searchable: true, pageSize: 25, defaultSort: {key:'vbcTotal', dir:'desc'}});
+  document.getElementById('br-cli-sub').textContent =
+    `${fmtInt(rows.length)} clientes (carteira da aba BASE + quem comprou no mês com o Setor). R = comprou a subcategoria no mês; S = ainda não.`;
+  const leg = document.getElementById('br-cli-legenda');
+  if(leg && !leg.innerHTML) leg.innerHTML = BR_SUBCATS.map(brSubTag).join(' ');
+}
+
+function renderBrasileirao(){
+  const wrap = document.getElementById('br-wrap');
+  if(!wrap) return;
+  const mesEl = document.getElementById('br-mes'), setorEl = document.getElementById('br-setor');
+  if(!mesEl.value) mesEl.value = crMesAtualKey();
+  const mesKey = mesEl.value;
+  const res = brCalcular(mesKey);
+  const opcoes = [BR_TOTAL].concat(res.setores);
+  const atual = setorEl.value || BR_TOTAL;
+  setorEl.innerHTML = opcoes.map(s => `<option value="${esc(s)}">${esc(brLabel(s))}</option>`).join('');
+  setorEl.value = opcoes.includes(atual) ? atual : BR_TOTAL;
+  const st = setorEl.value;
+  document.getElementById('br-banner-sub').textContent = brLabel(st);
+  const cal = res.cal;
+  document.getElementById('br-info').textContent =
+    `Vendas de ${fmtDateBR(cal.iniMs)} a ${fmtDateBR(cal.ateMs)} · dia anterior: ${fmtDateBR(cal.diaAnteriorMs)}` +
+    ` · trimestre da meta: ${fmtDateBR(parseDateOnly(res.triIni))} a ${fmtDateBR(parseDateOnly(res.triFim))}` +
+    (res.origem==='semente' ? ' · metas iniciais copiadas da planilha (salve o cadastro para publicar)'
+      : res.origem==='vazio' ? ' · ⚠️ nenhuma meta cadastrada para este mês' : '');
+  brRenderRanking(res);
+  brRenderResumo(res, st);
+  brRenderPorVendedor(res);
+  brRenderPorCliente(res, st);
+  brPreencherCadastro(mesKey, res);
+}
+
+/* ---------------------- Cadastro de metas do mês ---------------------- */
+let brPublicando = false;
+function brPreencherCadastro(mesKey, res){
+  const el = document.getElementById('br-cad-grid');
+  if(!el || el.dataset.mes===mesKey) return; // não apaga o que a pessoa está digitando
+  el.dataset.mes = mesKey;
+  const cad = res.cad;
+  const inp = (attrs, v) => `<input type="number" min="0" step="any" ${attrs} value="${v==null || v==='' ? '' : esc(v)}">`;
+  const npro = BR_SUBCATS.filter(s => !BR_POR_SETOR(s)), beb = BR_SUBCATS.filter(BR_POR_SETOR);
+  let html = '<div class="table-wrap"><table class="datatable cr-cad-table"><thead><tr><th>Meta da empresa</th>' +
+    npro.map(s => `<th class="${brCor(s)}" style="text-align:right" title="${esc(s)}">${esc(brCurto(s))}</th>`).join('') + '</tr></thead><tbody>';
+  html += '<tr><td>Cobertura (clientes)</td>' + npro.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-cobemp="${esc(s)}"`, (cad.cobEmpresa||{})[s])}</td>`).join('') + '</tr>';
+  html += '<tr><td>VBC (R$)</td>' + npro.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-vbcemp="${esc(s)}"`, (cad.vbcEmpresa||{})[s])}</td>`).join('') + '</tr>';
+  html += '</tbody></table></div>';
+  html += '<div class="table-wrap" style="margin-top:12px;"><table class="datatable cr-cad-table"><thead><tr><th rowspan="2">Setor</th>' +
+    beb.map(s => `<th colspan="2" class="cr-grupo ${brCor(s)}" title="${esc(s)}">${esc(s)}</th>`).join('') + '</tr><tr>' +
+    beb.map(s => `<th class="${brCor(s)}" style="text-align:right">Cobertura</th><th class="${brCor(s)}" style="text-align:right">VBC (R$)</th>`).join('') + '</tr></thead><tbody>';
+  res.setores.forEach(st => {
+    html += `<tr><td>${esc(st)}</td>` + beb.map(s =>
+      `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-cobset="${esc(st)}" data-br-sub="${esc(s)}"`, ((cad.cobSetor||{})[st]||{})[s])}</td>` +
+      `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-vbcset="${esc(st)}" data-br-sub="${esc(s)}"`, ((cad.vbcSetor||{})[st]||{})[s])}</td>`).join('') + '</tr>';
+  });
+  el.innerHTML = html + '</tbody></table></div>';
+  document.getElementById('br-cad-titulo').textContent = `Metas do mês — ${mesKey.slice(5,7)}/${mesKey.slice(0,4)}`;
+}
+function brLerCadastro(){
+  const rec = {cobEmpresa:{}, vbcEmpresa:{}, cobSetor:{}, vbcSetor:{}};
+  const n = i => i.value==='' ? 0 : Number(i.value);
+  document.querySelectorAll('[data-br-cobemp]').forEach(i => { rec.cobEmpresa[i.dataset.brCobemp] = n(i); });
+  document.querySelectorAll('[data-br-vbcemp]').forEach(i => { rec.vbcEmpresa[i.dataset.brVbcemp] = n(i); });
+  document.querySelectorAll('[data-br-cobset]').forEach(i => { const st = i.dataset.brCobset; (rec.cobSetor[st] = rec.cobSetor[st] || {})[i.dataset.brSub] = n(i); });
+  document.querySelectorAll('[data-br-vbcset]').forEach(i => { const st = i.dataset.brVbcset; (rec.vbcSetor[st] = rec.vbcSetor[st] || {})[i.dataset.brSub] = n(i); });
+  return rec;
+}
+function brMsg(texto, tipo){
+  const el = document.getElementById('br-cad-msg');
+  el.textContent = texto || '';
+  el.className = 'nrab-msg' + (tipo==='erro' ? ' is-error' : tipo==='ok' ? ' is-ok' : '');
+}
+
+function initBrasileirao(){
+  if(!document.getElementById('br-wrap')) return; // aba não presente neste HTML — módulo fica inerte
+  document.getElementById('br-mes').value = crMesAtualKey();
+  ['br-mes','br-setor','br-cli-filtro','br-cli-canal','br-cli-dia'].forEach(id => document.getElementById(id).addEventListener('change', renderBrasileirao));
+  document.getElementById('br-cad-form').addEventListener('submit', e => {
+    e.preventDefault();
+    if(brPublicando) return;
+    const mesKey = document.getElementById('br-mes').value;
+    const meses = Object.assign({}, (DATA.brasileirao && DATA.brasileirao.meses) || {}, {[mesKey]: brLerCadastro()});
+    brPublicando = true;
+    const btn = document.getElementById('br-cad-salvar'); btn.disabled = true;
+    brMsg('Publicando metas para todos…', '');
+    publicarCampoDATA('brasileirao', {meses}, 'metas do Brasileirão', 'brasileirao-metas').then(r => {
+      brPublicando = false; btn.disabled = false;
+      if(r.ok) brMsg(`Metas de ${mesKey.slice(5,7)}/${mesKey.slice(0,4)} salvas e publicadas para todos.`, 'ok');
+      else brMsg(`Não consegui publicar (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado. Tente de novo.`, 'erro');
+      document.getElementById('br-cad-grid').dataset.mes = '';
+      renderBrasileirao();
+    });
+  });
+  RENDERERS.brasileirao = renderBrasileirao;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -4730,6 +5097,7 @@ function init(){
   initMeta20();
   initSemCompra();
   initCrescer();
+  initBrasileirao();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

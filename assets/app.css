@@ -292,6 +292,9 @@ a{color:var(--accent-2);}
 .cr-print-crescer{margin-left:auto; display:inline-flex; align-items:center; background:var(--rail); border-radius:8px; padding:4px 8px;}
 .cr-print-crescer img{height:40px; width:auto; display:block;}
 .cr-info{margin:-6px 0 14px;}
+.br-ranking-panel{border-top:3px solid var(--wave);}
+.br-lider{font-weight:800; color:var(--accent-ink);}
+.br-legenda{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px;}
 /* Cor por categoria (Crescer +): célula clara, cabeçalho/total mais forte, texto da etiqueta. */
 .datatable td.cr-c-lac{background:#EEF4FF;}
 .datatable th.cr-c-lac, .datatable tr.cr-total td.cr-c-lac{background:#D7E5FF; color:#1E4FA8;}

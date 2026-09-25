@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=14">
+<link rel="stylesheet" href="assets/app.css?v=15">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -622,6 +622,111 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="brasileirao">
+    <div class="section-title">Brasileirão NPRO</div>
+    <div class="cr-banner">
+      <span class="badge cr-banner-nestle"><img src="assets/logo-nestle-professional.png" alt="Nestlé Professional"></span>
+      <div class="cr-banner-texto">
+        <div class="cr-banner-titulo">Brasileirão NPRO</div>
+        <div class="cr-banner-sub" id="br-banner-sub"></div>
+      </div>
+    </div>
+    <div class="section-note">
+      Réplica da planilha do Brasileirão (Ranking Mensal, RESUMO, COBERTURAS, VBC e Por Cliente), por subcategoria.
+      As vendas saem da planilha enviada em <b>Enviar Vendas</b>. A meta de VBC de cada Setor usa o trimestre anterior ao mês
+      (a aba "Cálculo Meta PC"); a de cobertura usa a base de clientes que compraram NPRO nesse trimestre. Pontos: 5 com 100%,
+      2 com 60%, 0 abaixo disso — final × 1,15. As metas da empresa ficam no cadastro no fim da página.
+    </div>
+
+    <div class="mapa-lookup">
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="br-setor"></select>
+      </div>
+      <div>
+        <span class="flabel">Mês</span>
+        <input type="month" id="br-mes" aria-label="Mês de referência">
+      </div>
+    </div>
+
+    <div id="br-wrap">
+      <div class="panel br-ranking-panel">
+        <h3>Ranking Brasileirão</h3>
+        <div class="panel-sub">Vendedores ordenados pelo total (VBC + Cobertura, pontos finais). O Setor 555 não entra no ranking, como na planilha.</div>
+        <div id="table-br-ranking"></div>
+      </div>
+
+      <div class="kpi-row" id="kpi-br" style="margin-top:16px;"></div>
+      <div class="panel-sub cr-info" id="br-info"></div>
+      <div class="panel">
+        <h3>Cobertura</h3>
+        <div class="panel-sub">Ideal = % de dias úteis já decorridos. Efet. dia anterior = clientes cobertos até o último dia útil; Evolução = efetivo − dia anterior. Obj. por dia = saldo ÷ dias úteis restantes.</div>
+        <div id="table-br-cob"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>VBC</h3>
+        <div class="panel-sub">Tendência = efetivo ÷ dias decorridos × dias úteis.</div>
+        <div id="table-br-vbc"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Cobertura por Setor</h3>
+        <div class="panel-sub">Mesma conta da aba COBERTURAS da planilha. Base = clientes que compraram NPRO com o Setor no trimestre anterior.</div>
+        <div id="table-br-cob-vend"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>VBC por Setor</h3>
+        <div class="panel-sub">Mesma conta da aba VBC da planilha.</div>
+        <div id="table-br-vbc-vend"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Por cliente</h3>
+        <div class="panel-sub" id="br-cli-sub"></div>
+        <div class="br-legenda" id="br-cli-legenda"></div>
+        <div class="mapa-lookup cr-cli-filtros">
+          <div>
+            <span class="flabel">Mostrar</span>
+            <select id="br-cli-filtro">
+              <option value="">Todos os clientes</option>
+              <option value="com">Só quem comprou no mês</option>
+              <option value="sem">Só quem não comprou nenhuma subcategoria</option>
+            </select>
+          </div>
+          <div>
+            <span class="flabel">Canal</span>
+            <select id="br-cli-canal"><option value="">(Todos)</option></select>
+          </div>
+          <div>
+            <span class="flabel">Dia de visita</span>
+            <select id="br-cli-dia">
+              <option value="">(Todos)</option>
+              <option value="1">Segunda</option>
+              <option value="2">Terça</option>
+              <option value="3">Quarta</option>
+              <option value="4">Quinta</option>
+              <option value="5">Sexta</option>
+              <option value="0">Sem dia definido</option>
+            </select>
+          </div>
+        </div>
+        <div id="table-br-cli"></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
+        <h3 id="br-cad-titulo">Metas do mês</h3>
+        <div class="panel-sub">Metas da empresa por subcategoria (cada Setor recebe a sua parte pela base/trimestre) e, nas subcategorias de Bebidas (07x), a meta de cada Setor. Salvar publica para todos, só para o mês selecionado.</div>
+        <form id="br-cad-form">
+          <div id="br-cad-grid"></div>
+          <div class="nrab-form">
+            <div class="nrab-field-actions">
+              <button type="submit" class="mapa-search-btn" id="br-cad-salvar">Salvar metas do mês</button>
+            </div>
+          </div>
+          <div class="nrab-msg" id="br-cad-msg"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -651,6 +756,6 @@
 </div>
 
 
-<script src="assets/app.js?v=28" defer></script>
+<script src="assets/app.js?v=29" defer></script>
 </body>
 </html>
