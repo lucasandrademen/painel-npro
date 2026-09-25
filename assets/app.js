@@ -3996,6 +3996,13 @@ function parseCarteiraBase(grid){
   const cDia = optCol(map,'Dia de Visita'), cCiclo = optCol(map,'Ciclo'), cSup = optCol(map,'Supervisor');
   const cCod = optCol(map,'COD.CLIENTE'), cCidade = optCol(map,'CIDADE'), cBairro = optCol(map,'BAIRRO');
   const cCanal = optCol(map,'DESC.CATEGORIA'), cDdd = optCol(map,'DDD'), cFone = optCol(map,'TELEFONE');
+  // Força de venda do cliente: no bloco da esquerda, cada linha é um par cliente x
+  // vendedor com o "GRUPO COMERCIAL" (3 = força NPRO, 4 = força BEBIDAS). "VENDEDOR"
+  // se repete mais à direita (tabela Setor->Vendedor), então aqui vale a 1ª coluna
+  // com esse nome, não a que o headerIndexMap guardou.
+  const cGrupo = optCol(map,'GRUPO COMERCIAL');
+  const cVendL = (grid[headerRow-1]||[]).findIndex(h => normalizeHeader(h)==='VENDEDOR') + 1 || null;
+  const forcas = new Map(); // Sold -> {npro, beb}
 
   const cadastro = new Map(); // COD.CLIENTE -> {cidade, bairro, canal, telefone}
   if(cCod){
@@ -4005,6 +4012,12 @@ function parseCarteiraBase(grid){
       if(cod==null){ blank++; continue; }
       blank = 0;
       const k = String(cod);
+      if(cGrupo && cVendL){
+        const g = Number(ocell(grid,r,cGrupo)), v = ocell(grid,r,cVendL);
+        if(v!=null && (g===3 || g===4)){
+          const f = forcas.get(k) || {}; if(g===3 && !f.npro) f.npro = String(v); if(g===4 && !f.beb) f.beb = String(v); forcas.set(k, f);
+        }
+      }
       if(cadastro.has(k)) continue;
       const ddd = cDdd ? ocell(grid,r,cDdd) : null, fone = cFone ? ocell(grid,r,cFone) : null;
       cadastro.set(k, {
@@ -4036,7 +4049,13 @@ function parseCarteiraBase(grid){
       scNormalizarDia(cDia ? ocell(grid,r,cDia) : null), scNormalizarCiclo(cCiclo ? ocell(grid,r,cCiclo) : null),
       supV!=null ? String(supV) : null, cad.cidade||null, cad.bairro||null, cad.canal||null, cad.telefone||null]);
   }
-  return {headers: SC_CARTEIRA_HEADERS, rows};
+  const setoresCarteira = new Set(rows.map(r => r[1]));
+  const forcasRows = [];
+  forcas.forEach((f, sold) => {
+    const npro = setoresCarteira.has(f.npro) ? f.npro : null, beb = setoresCarteira.has(f.beb) ? f.beb : null;
+    if(npro || beb) forcasRows.push([sold, npro, beb]);
+  });
+  return {headers: SC_CARTEIRA_HEADERS, rows, forcas: forcasRows};
 }
 // "Dia de Visita" vem como 1..5; alguns clientes têm lixo (7, datas) — sem dia fixo.
 function scNormalizarDia(v){
@@ -4740,9 +4759,14 @@ function initCrescer(){
      subcategorias de Bebidas (07x) a meta de cobertura é por Setor.
    - VBC efetivo = faturamento da subcategoria no mês com o Setor. Meta do
      Setor = meta da empresa × participação do Setor no VBC do trimestre
-     anterior, somando todas as compras dos clientes da carteira do Setor
-     (aba "Cálculo Meta PC": sempre os 3 meses antes do mês analisado). Nas 07x
-     a meta de VBC também é por Setor.
+     anterior (aba "Cálculo Meta PC": sempre os 3 meses antes do mês
+     analisado), somando as compras de cada cliente para o vendedor da FORÇA
+     do produto — NPRO para o vendedor NPRO do cliente, Bebidas (07x) para o de
+     BEBIDAS (coluna GRUPO COMERCIAL da BASE: 3 = NPRO, 4 = BEBIDAS). Assim um
+     cliente atendido pelas duas forças não conta em dobro. Nas 07x a meta de
+     VBC também é por Setor.
+   - Venda feita por vendedor de fora da equipe 500 cai para o vendedor da
+     equipe que atende o cliente naquela força.
    - Pontos por subcategoria: 5 se atingiu 100%, 2 se atingiu 60%, senão 0;
      pontuação final = pontos × 1,15. Ranking = pontos finais de VBC + Cobertura.
    Metas do mês são um cadastro publicado para todos (DATA.brasileirao).
@@ -4783,6 +4807,28 @@ function brCadastroDoMes(mesKey){
   if(BR_SEMENTE[mesKey]) return {cad: BR_SEMENTE[mesKey], origem: 'semente'};
   return {cad: {cobEmpresa:{}, cobSetor:{}, vbcEmpresa:{}, vbcSetor:{}}, origem: 'vazio'};
 }
+// Sold -> {npro, beb}: da coluna GRUPO COMERCIAL da BASE (DATA.carteira.forcas). Sem
+// ela (carteira antiga), deduz pela carteira: um Setor só = as duas forças; dois
+// Setores = o 510 é a força BEBIDAS e o outro a NPRO.
+let _brForcasCache = {fonte: undefined, mapa: null};
+function brForcas(){
+  const fonte = DATA.carteira || DATA.meta20 || null;
+  if(_brForcasCache.fonte===fonte && _brForcasCache.mapa) return _brForcasCache.mapa;
+  const mapa = new Map();
+  if(DATA.carteira && Array.isArray(DATA.carteira.forcas) && DATA.carteira.forcas.length){
+    DATA.carteira.forcas.forEach(([sold, npro, beb]) => mapa.set(String(sold), {npro: npro||null, beb: beb||null}));
+  }
+  const porSold = new Map();
+  scDados().carteira.forEach(c => { if(!porSold.has(c.sold)) porSold.set(c.sold, []); porSold.get(c.sold).push(c.setor); });
+  porSold.forEach((sts, sold) => {
+    if(mapa.has(sold)) return;
+    const unicos = Array.from(new Set(sts));
+    if(unicos.length===1) mapa.set(sold, {npro: unicos[0], beb: unicos[0]});
+    else mapa.set(sold, {npro: unicos.find(x => x!=='510') || unicos[0], beb: unicos.includes('510') ? '510' : unicos[0]});
+  });
+  _brForcasCache = {fonte, mapa};
+  return mapa;
+}
 function brPontos(pct){ return pct==null ? 0 : pct>=1 ? 5 : pct>=0.6 ? 2 : 0; }
 
 /* ---------------------- Cálculo ---------------------- */
@@ -4795,20 +4841,27 @@ function brCalcular(mesKey){
   const triIni = fmtDateOnly(Date.UTC(ano, mes-4, 1)), triFim = fmtDateOnly(Date.UTC(ano, mes-1, 0));
   const setores = crSetores();
   const subs = new Set(BR_SUBCATS);
-  const {carteira} = scDados();
-  const carteiraDoSold = new Map();
-  carteira.forEach(c => { if(!carteiraDoSold.has(c.sold)) carteiraDoSold.set(c.sold, []); carteiraDoSold.get(c.sold).push(c.setor); });
+  const forca = brForcas();
+  const equipe = new Set(setores);
+  // Quem "atende" o cliente naquele produto: NPRO -> vendedor da força NPRO,
+  // Bebidas -> vendedor da força BEBIDAS (na falta de um, o outro).
+  const atendente = (sold, origem) => { const f = forca.get(sold); if(!f) return null; return origem==='BEBIDAS' ? (f.beb || f.npro) : (f.npro || f.beb); };
 
   const compradores = new Map(), compradoresAnt = new Map(), vbcMes = new Map(), vbcTri = new Map();
   const baseSetor = new Map(); // Setor -> Set(Sold) que comprou NPRO no trimestre
   const porCliente = new Map(); // Setor|Sold -> {sub: faturamento}
   for(const r of (DATA.baseVendas||[])){
     const iso = r[3]; if(!iso || r[1]==null) continue;
-    const setor = String(r[1]), sold = String(r[0]), sub = r[6], fat = Number(r[9])||0;
+    const sold = String(r[0]), sub = r[6], fat = Number(r[9])||0;
+    // Venda feita por vendedor de fora da equipe 500 cai para quem atende o cliente.
+    const setor = equipe.has(String(r[1])) ? String(r[1]) : atendente(sold, r[7]);
+    if(!setor) continue;
     const noTri = iso>=triIni && iso<=triFim;
     if(noTri && r[7]==='NPRO'){ let b = baseSetor.get(setor); if(!b){ b = new Set(); baseSetor.set(setor, b); } b.add(sold); }
     if(!subs.has(sub)) continue;
-    if(noTri) (carteiraDoSold.get(sold)||[]).forEach(st => { const k = st+'|'+sub; vbcTri.set(k, (vbcTri.get(k)||0) + fat); });
+    // Trimestre da meta ("Cálculo Meta PC"): todas as compras do cliente, cada uma para o
+    // vendedor da força do produto — um cliente com as duas forças não conta em dobro.
+    if(noTri){ const st = atendente(sold, BR_POR_SETOR(sub) ? 'BEBIDAS' : 'NPRO'); if(st){ const k = st+'|'+sub; vbcTri.set(k, (vbcTri.get(k)||0) + fat); } }
     if(iso<iniISO || iso>ateISO) continue;
     const k = setor + '|' + sub;
     vbcMes.set(k, (vbcMes.get(k)||0) + fat);
