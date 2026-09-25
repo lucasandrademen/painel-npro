@@ -296,7 +296,8 @@ a{color:var(--accent-2);}
   width:110px; max-width:100%; text-align:right; font-family:var(--font-body); font-size:12.5px; font-weight:600;
   color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:5px 8px;
 }
-#cr-cad-form .nrab-form{margin-top:12px;}
+#cr-cad-form .nrab-form{margin-top:12px; align-items:center;}
+.cr-cad-dias{flex:1 1 320px; margin:0; font-size:12px;}
 
 /* ============================== MAPA DA VENDA (busca por cliente/SOLD) ============================== */
 .mapa-lookup{

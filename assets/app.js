@@ -4320,9 +4320,8 @@ function initSemCompra(){
      categoria no trimestre anterior (3 meses fechados) — mesma regra da aba
      VBC da planilha (ROUNDUP).
    - Dias úteis = segunda a sexta do mês menos os feriados nacionais e de
-     Sergipe (e as datas extras cadastradas). Dias decorridos contam até hoje,
-     inclusive (a planilha do matinal já conta o dia em curso). Os dois podem
-     ser corrigidos à mão no cadastro.
+     Sergipe, sempre automático. Dias decorridos contam até hoje, inclusive
+     (a planilha do matinal já conta o dia em curso).
    Metas (cobertura por Setor, VBC da empresa) são um cadastro mensal publicado
    para todos (DATA.crescer), como as metas do Meta 20+.
    ========================================================================= */
@@ -4341,7 +4340,6 @@ const CR_SEMENTE = {
       '1':   {'01-NP LACTEOS':260, '02-NP CHOCOLATES':148, '03-NP CULINARIOS':141, '07-NP SOLUCOES':70},
     },
     vbc: {'01-NP LACTEOS':1495395.72, '02-NP CHOCOLATES':228648.41, '03-NP CULINARIOS':74658.29, '07-NP SOLUCOES':185348.47},
-    feriadosExtras: [], diasUteis: null, diasDecorridos: null,
   },
 };
 
@@ -4354,19 +4352,16 @@ function crPascoaMs(ano){ // algoritmo de Meeus/Jones/Butcher
   return Date.UTC(ano, mes-1, dia);
 }
 // Feriados oficiais: nacionais (Lei 662/49, 6.802/80, 14.759/23) + Sergipe (8/7,
-// Emancipação Política). Carnaval e Corpus Christi são ponto facultativo e
-// feriados municipais variam — esses entram pelas "datas extras" do cadastro.
+// Emancipação Política). Carnaval e Corpus Christi são ponto facultativo e não
+// entram.
 function crFeriadosOficiais(ano){
   const fixos = ['01-01','04-21','05-01','07-08','09-07','10-12','11-02','11-15','11-20','12-25'];
   const lista = fixos.map(md => ({iso: ano + '-' + md}));
   lista.push({iso: fmtDateOnly(crPascoaMs(ano) - 2*SC_DIA_MS)}); // Sexta-feira Santa
   return lista.map(f => f.iso);
 }
-function crFeriadosDoMes(mesKey, extras){
-  const ano = Number(mesKey.slice(0,4));
-  const set = new Set(crFeriadosOficiais(ano).filter(iso => iso.slice(0,7)===mesKey));
-  (extras||[]).forEach(iso => { if(iso && iso.slice(0,7)===mesKey) set.add(iso); });
-  return set;
+function crFeriadosDoMes(mesKey){
+  return new Set(crFeriadosOficiais(Number(mesKey.slice(0,4))).filter(iso => iso.slice(0,7)===mesKey));
 }
 
 /* ---------------------- Calendário do mês ---------------------- */
@@ -4375,25 +4370,21 @@ function crCadastroDoMes(mesKey){
   const salvo = DATA.crescer && DATA.crescer.meses && DATA.crescer.meses[mesKey];
   if(salvo) return {cad: salvo, origem: 'salvo'};
   if(CR_SEMENTE[mesKey]) return {cad: CR_SEMENTE[mesKey], origem: 'semente'};
-  return {cad: {cobertura:{}, vbc:{}, feriadosExtras:[], diasUteis:null, diasDecorridos:null}, origem: 'vazio'};
+  return {cad: {cobertura:{}, vbc:{}}, origem: 'vazio'};
 }
-function crCalendario(mesKey, cad){
+function crCalendario(mesKey){
   const [ano, mes] = mesKey.split('-').map(Number);
   const iniMs = Date.UTC(ano, mes-1, 1), fimMs = Date.UTC(ano, mes, 0);
   const hoje = scHojeMs();
-  const feriados = crFeriadosDoMes(mesKey, cad.feriadosExtras);
+  const feriados = crFeriadosDoMes(mesKey);
   const util = ms => scDiaSemana(ms)<=5 && !feriados.has(fmtDateOnly(ms));
   let uteis = 0, decorridos = 0;
   for(let ms=iniMs; ms<=fimMs; ms+=SC_DIA_MS){ if(util(ms)){ uteis++; if(ms<=hoje) decorridos++; } }
   // Dia anterior = último dia útil antes de hoje (dentro do mês).
   let diaAnteriorMs = null;
   for(let ms=Math.min(hoje, fimMs+SC_DIA_MS)-SC_DIA_MS; ms>=iniMs; ms-=SC_DIA_MS){ if(util(ms)){ diaAnteriorMs = ms; break; } }
-  const uteisAuto = uteis, decorridosAuto = decorridos;
-  if(cad.diasUteis>0) uteis = cad.diasUteis;
-  if(cad.diasDecorridos!=null && cad.diasDecorridos>=0) decorridos = cad.diasDecorridos;
-  decorridos = Math.min(decorridos, uteis);
   return {iniMs, fimMs, ateMs: Math.min(hoje, fimMs), uteis, decorridos, restantes: Math.max(0, uteis-decorridos),
-    uteisAuto, decorridosAuto, diaAnteriorMs, feriados: Array.from(feriados).sort(),
+    diaAnteriorMs, feriados: Array.from(feriados).sort(),
     ideal: uteis ? decorridos/uteis : 0};
 }
 
@@ -4403,7 +4394,7 @@ function crSetores(){
 }
 function crCalcular(mesKey){
   const {cad, origem} = crCadastroDoMes(mesKey);
-  const cal = crCalendario(mesKey, cad);
+  const cal = crCalendario(mesKey);
   const iniISO = fmtDateOnly(cal.iniMs), ateISO = fmtDateOnly(cal.ateMs);
   const diaAntISO = cal.diaAnteriorMs!=null ? fmtDateOnly(cal.diaAnteriorMs) : null;
   const [ano, mes] = mesKey.split('-').map(Number);
@@ -4562,6 +4553,9 @@ function renderCrescer(){
 /* ---------------------- Cadastro de metas do mês ---------------------- */
 let crPublicando = false;
 function crPreencherCadastro(mesKey, res){
+  const cal = res.cal, dias = document.getElementById('cr-cad-dias');
+  if(dias) dias.textContent = `Dias úteis (automático): ${cal.uteis} · decorridos até hoje: ${cal.decorridos} · restantes: ${cal.restantes}` +
+    ` · feriados nacionais e de Sergipe no mês: ${cal.feriados.length ? cal.feriados.map(iso => iso.slice(8,10)+'/'+iso.slice(5,7)).join(', ') : 'nenhum'}`;
   const el = document.getElementById('cr-cad-grid');
   if(!el || el.dataset.mes===mesKey) return; // não apaga o que a pessoa está digitando
   el.dataset.mes = mesKey;
@@ -4576,12 +4570,7 @@ function crPreencherCadastro(mesKey, res){
   html += '<tr><td><b>VBC da empresa (R$)</b></td>' + CR_CATEGORIAS.map(c =>
     `<td style="text-align:right">${inp(`data-cr-vbc="${esc(c)}"`, (cad.vbc||{})[c])}</td>`).join('') + '</tr>';
   el.innerHTML = html + '</tbody></table></div>';
-  document.getElementById('cr-cad-extras').value = (cad.feriadosExtras||[]).map(iso => iso.split('-').reverse().join('/')).join(', ');
-  document.getElementById('cr-cad-uteis').value = cad.diasUteis || '';
-  document.getElementById('cr-cad-decorridos').value = cad.diasDecorridos!=null ? cad.diasDecorridos : '';
-  document.getElementById('cr-cad-uteis').placeholder = `automático: ${res.cal.uteisAuto}`;
-  document.getElementById('cr-cad-decorridos').placeholder = `automático: ${res.cal.decorridosAuto}`;
-  document.getElementById('cr-cad-titulo').textContent = `Metas e dias úteis — ${mesKey.slice(5,7)}/${mesKey.slice(0,4)}`;
+  document.getElementById('cr-cad-titulo').textContent = `Metas do mês — ${mesKey.slice(5,7)}/${mesKey.slice(0,4)}`;
 }
 function crMsg(texto, tipo){
   const el = document.getElementById('cr-cad-msg');
@@ -4595,16 +4584,7 @@ function crLerCadastro(){
     cobertura[st][i.dataset.crCat] = i.value==='' ? 0 : Number(i.value);
   });
   document.querySelectorAll('[data-cr-vbc]').forEach(i => { vbc[i.dataset.crVbc] = i.value==='' ? 0 : Number(i.value); });
-  const extras = [], invalidas = [];
-  document.getElementById('cr-cad-extras').value.split(/[,;\s]+/).filter(Boolean).forEach(t => {
-    const m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
-    const mesKey = document.getElementById('cr-mes').value;
-    if(!m){ invalidas.push(t); return; }
-    const ano = m[3] || mesKey.slice(0,4);
-    extras.push(`${ano}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`);
-  });
-  const uteis = document.getElementById('cr-cad-uteis').value, dec = document.getElementById('cr-cad-decorridos').value;
-  return {rec: {cobertura, vbc, feriadosExtras: extras, diasUteis: uteis==='' ? null : Number(uteis), diasDecorridos: dec==='' ? null : Number(dec)}, invalidas};
+  return {cobertura, vbc};
 }
 
 function initCrescer(){
@@ -4616,8 +4596,7 @@ function initCrescer(){
     e.preventDefault();
     if(crPublicando) return;
     const mesKey = document.getElementById('cr-mes').value;
-    const {rec, invalidas} = crLerCadastro();
-    if(invalidas.length){ crMsg(`Datas extras inválidas: ${invalidas.join(', ')} (use dd/mm ou dd/mm/aaaa).`, 'erro'); return; }
+    const rec = crLerCadastro();
     const meses = Object.assign({}, (DATA.crescer && DATA.crescer.meses) || {}, {[mesKey]: rec});
     crPublicando = true;
     const btn = document.getElementById('cr-cad-salvar'); btn.disabled = true;

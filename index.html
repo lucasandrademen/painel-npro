@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=7">
+<link rel="stylesheet" href="assets/app.css?v=8">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -568,23 +568,12 @@
       </div>
 
       <div class="panel" style="margin-top:14px;">
-        <h3 id="cr-cad-titulo">Metas e dias úteis</h3>
+        <h3 id="cr-cad-titulo">Metas do mês</h3>
         <div class="panel-sub">Cobertura: meta de clientes por Setor e categoria (a linha "Total da equipe" em branco soma os Setores). VBC: meta da empresa — cada Setor recebe a sua parte pelo trimestre anterior. Salvar publica para todos, só para o mês selecionado.</div>
         <form id="cr-cad-form">
           <div id="cr-cad-grid"></div>
           <div class="nrab-form">
-            <div class="nrab-field" style="min-width:260px;">
-              <span class="flabel">Feriados/pontos extras (dd/mm)</span>
-              <input type="text" id="cr-cad-extras" placeholder="Ex.: 17/03, 08/12" autocomplete="off">
-            </div>
-            <div class="nrab-field nrab-field-narrow">
-              <span class="flabel">Dias úteis</span>
-              <input type="number" id="cr-cad-uteis" min="1" step="1">
-            </div>
-            <div class="nrab-field nrab-field-narrow">
-              <span class="flabel">Dias decorridos</span>
-              <input type="number" id="cr-cad-decorridos" min="0" step="1">
-            </div>
+            <div class="panel-sub cr-cad-dias" id="cr-cad-dias"></div>
             <div class="nrab-field-actions">
               <button type="submit" class="mapa-search-btn" id="cr-cad-salvar">Salvar metas do mês</button>
             </div>
@@ -624,6 +613,6 @@
 </div>
 
 
-<script src="assets/app.js?v=16" defer></script>
+<script src="assets/app.js?v=17" defer></script>
 </body>
 </html>
