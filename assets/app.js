@@ -87,6 +87,7 @@ const TABS = [
   {id:"nrab", label:"Acompanhamento NRAB"},
   {id:"meta20", label:"Meta 20+"},
   {id:"semcompra", label:"Clientes sem Compra"},
+  {id:"crescer", label:"Crescer +"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2714,6 +2715,16 @@ const PRINT_CONFIG = {
       return visivel ? null : 'Selecione, na lista de clientes, um SOLD com NRAB cadastrada antes de imprimir — o relatório desta aba é sempre de um cliente.';
     },
   },
+  crescer: {
+    title:'Crescer + — Resumo', orientation:'landscape', kpi:'kpi-crescer', blocks:[], hideFilters:true,
+    tables:[{id:'table-crescer-cob', title:'Cobertura'}, {id:'table-crescer-vbc', title:'VBC'}],
+    periodLabel: () => document.getElementById('cr-info').textContent,
+    headerExtra: () => {
+      const setor = document.getElementById('cr-setor').value, mes = document.getElementById('cr-mes').value;
+      return `<div class="print-filters-row"><span class="print-filter-chip"><b>Setor:</b> ${esc(crSetorLabel(setor))}</span>`
+        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span></div>`;
+    },
+  },
   semcompra: {
     title:'Clientes sem Compra', orientation:'landscape', kpi:'kpi-semcompra', blocks:[], hideFilters:true,
     tables:[{id:'table-semcompra', title:'Clientes sem compra'}, {id:'table-semcompra-vend', title:'Resumo por vendedor'}],
@@ -4294,6 +4305,330 @@ function initSemCompra(){
   RENDERERS.semcompra = renderSemCompra;
 }
 
+/* ============================================================================
+   CRESCER + (RESUMO) — módulo isolado
+   ----------------------------------------------------------------------------
+   Replica a aba RESUMO da planilha "ACOMPANHAMENTO CRESCER + NPRO+BEBIDAS":
+   por Setor (ou o total da equipe, Setor 1), Cobertura e VBC das categorias
+   do programa no mês, contra a meta, o ideal do dia e o objetivo por dia.
+   - Cobertura efetiva = nº de clientes (Sold) que compraram a categoria no mês
+     com aquele Setor. A planilha conta pela Razão Social, o que junta lojas
+     da mesma rede num cliente só; aqui é pelo Sold, como no resto do app.
+   - VBC efetivo = faturamento da categoria no mês, por Setor.
+   - Meta de VBC do Setor = meta da empresa × participação do Setor no VBC da
+     categoria no trimestre anterior (3 meses fechados) — mesma regra da aba
+     VBC da planilha (ROUNDUP).
+   - Dias úteis = segunda a sexta do mês menos os feriados nacionais e de
+     Sergipe (e as datas extras cadastradas). Dias decorridos contam até hoje,
+     inclusive (a planilha do matinal já conta o dia em curso). Os dois podem
+     ser corrigidos à mão no cadastro.
+   Metas (cobertura por Setor, VBC da empresa) são um cadastro mensal publicado
+   para todos (DATA.crescer), como as metas do Meta 20+.
+   ========================================================================= */
+
+const CR_CATEGORIAS = ['01-NP LACTEOS','02-NP CHOCOLATES','03-NP CULINARIOS','07-NP SOLUCOES'];
+const CR_SETOR_TOTAL = '1';
+// Valores de setembro/2026 copiados da planilha — valem até alguém salvar o cadastro.
+const CR_SEMENTE = {
+  '2026-09': {
+    cobertura: {
+      '502': {'01-NP LACTEOS':93, '02-NP CHOCOLATES':48, '03-NP CULINARIOS':46, '07-NP SOLUCOES':0},
+      '504': {'01-NP LACTEOS':96, '02-NP CHOCOLATES':50, '03-NP CULINARIOS':46, '07-NP SOLUCOES':0},
+      '505': {'01-NP LACTEOS':49, '02-NP CHOCOLATES':32, '03-NP CULINARIOS':46, '07-NP SOLUCOES':11},
+      '510': {'01-NP LACTEOS':22, '02-NP CHOCOLATES':18, '03-NP CULINARIOS':3, '07-NP SOLUCOES':59},
+      '555': {'01-NP LACTEOS':1, '02-NP CHOCOLATES':2, '03-NP CULINARIOS':0, '07-NP SOLUCOES':0},
+      '1':   {'01-NP LACTEOS':260, '02-NP CHOCOLATES':148, '03-NP CULINARIOS':141, '07-NP SOLUCOES':70},
+    },
+    vbc: {'01-NP LACTEOS':1495395.72, '02-NP CHOCOLATES':228648.41, '03-NP CULINARIOS':74658.29, '07-NP SOLUCOES':185348.47},
+    feriadosExtras: [], diasUteis: null, diasDecorridos: null,
+  },
+};
+
+/* ---------------------- Feriados (Brasil + Sergipe) ---------------------- */
+function crPascoaMs(ano){ // algoritmo de Meeus/Jones/Butcher
+  const a=ano%19, b=Math.floor(ano/100), c=ano%100, d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25),
+        g=Math.floor((b-f+1)/3), h=(19*a+b-d-g+15)%30, i=Math.floor(c/4), k=c%4,
+        l=(32+2*e+2*i-h-k)%7, m=Math.floor((a+11*h+22*l)/451),
+        mes=Math.floor((h+l-7*m+114)/31), dia=((h+l-7*m+114)%31)+1;
+  return Date.UTC(ano, mes-1, dia);
+}
+// Feriados oficiais: nacionais (Lei 662/49, 6.802/80, 14.759/23) + Sergipe (8/7,
+// Emancipação Política). Carnaval e Corpus Christi são ponto facultativo e
+// feriados municipais variam — esses entram pelas "datas extras" do cadastro.
+function crFeriadosOficiais(ano){
+  const fixos = ['01-01','04-21','05-01','07-08','09-07','10-12','11-02','11-15','11-20','12-25'];
+  const lista = fixos.map(md => ({iso: ano + '-' + md}));
+  lista.push({iso: fmtDateOnly(crPascoaMs(ano) - 2*SC_DIA_MS)}); // Sexta-feira Santa
+  return lista.map(f => f.iso);
+}
+function crFeriadosDoMes(mesKey, extras){
+  const ano = Number(mesKey.slice(0,4));
+  const set = new Set(crFeriadosOficiais(ano).filter(iso => iso.slice(0,7)===mesKey));
+  (extras||[]).forEach(iso => { if(iso && iso.slice(0,7)===mesKey) set.add(iso); });
+  return set;
+}
+
+/* ---------------------- Calendário do mês ---------------------- */
+function crMesAtualKey(){ return fmtDateOnly(scHojeMs()).slice(0,7); }
+function crCadastroDoMes(mesKey){
+  const salvo = DATA.crescer && DATA.crescer.meses && DATA.crescer.meses[mesKey];
+  if(salvo) return {cad: salvo, origem: 'salvo'};
+  if(CR_SEMENTE[mesKey]) return {cad: CR_SEMENTE[mesKey], origem: 'semente'};
+  return {cad: {cobertura:{}, vbc:{}, feriadosExtras:[], diasUteis:null, diasDecorridos:null}, origem: 'vazio'};
+}
+function crCalendario(mesKey, cad){
+  const [ano, mes] = mesKey.split('-').map(Number);
+  const iniMs = Date.UTC(ano, mes-1, 1), fimMs = Date.UTC(ano, mes, 0);
+  const hoje = scHojeMs();
+  const feriados = crFeriadosDoMes(mesKey, cad.feriadosExtras);
+  const util = ms => scDiaSemana(ms)<=5 && !feriados.has(fmtDateOnly(ms));
+  let uteis = 0, decorridos = 0;
+  for(let ms=iniMs; ms<=fimMs; ms+=SC_DIA_MS){ if(util(ms)){ uteis++; if(ms<=hoje) decorridos++; } }
+  // Dia anterior = último dia útil antes de hoje (dentro do mês).
+  let diaAnteriorMs = null;
+  for(let ms=Math.min(hoje, fimMs+SC_DIA_MS)-SC_DIA_MS; ms>=iniMs; ms-=SC_DIA_MS){ if(util(ms)){ diaAnteriorMs = ms; break; } }
+  const uteisAuto = uteis, decorridosAuto = decorridos;
+  if(cad.diasUteis>0) uteis = cad.diasUteis;
+  if(cad.diasDecorridos!=null && cad.diasDecorridos>=0) decorridos = cad.diasDecorridos;
+  decorridos = Math.min(decorridos, uteis);
+  return {iniMs, fimMs, ateMs: Math.min(hoje, fimMs), uteis, decorridos, restantes: Math.max(0, uteis-decorridos),
+    uteisAuto, decorridosAuto, diaAnteriorMs, feriados: Array.from(feriados).sort(),
+    ideal: uteis ? decorridos/uteis : 0};
+}
+
+/* ---------------------- Cálculo ---------------------- */
+function crSetores(){
+  return (DATA.vendedores||[]).map(String).filter(s => s!=='506').sort();
+}
+function crCalcular(mesKey){
+  const {cad, origem} = crCadastroDoMes(mesKey);
+  const cal = crCalendario(mesKey, cad);
+  const iniISO = fmtDateOnly(cal.iniMs), ateISO = fmtDateOnly(cal.ateMs);
+  const diaAntISO = cal.diaAnteriorMs!=null ? fmtDateOnly(cal.diaAnteriorMs) : null;
+  const [ano, mes] = mesKey.split('-').map(Number);
+  const triIniISO = fmtDateOnly(Date.UTC(ano, mes-4, 1)), triFimISO = fmtDateOnly(Date.UTC(ano, mes-1, 0));
+  const cats = new Set(CR_CATEGORIAS);
+
+  // Por Setor|Categoria: compradores no mês, 1ª compra de cada cliente no mês, VBC do mês e do trimestre.
+  const compradores = new Map(), primeira = new Map(), vbcMes = new Map(), vbcTri = new Map();
+  for(const r of (DATA.baseVendas||[])){
+    const grp = r[5], iso = r[3];
+    if(!cats.has(grp) || !iso || r[1]==null) continue;
+    const k = String(r[1]) + '|' + grp, fat = Number(r[9])||0;
+    if(iso>=triIniISO && iso<=triFimISO) vbcTri.set(k, (vbcTri.get(k)||0) + fat);
+    if(iso<iniISO || iso>ateISO) continue;
+    vbcMes.set(k, (vbcMes.get(k)||0) + fat);
+    const sold = String(r[0]);
+    let s = compradores.get(k); if(!s){ s = new Set(); compradores.set(k, s); } s.add(sold);
+    const kp = k + '|' + sold;
+    if(!primeira.has(kp) || iso<primeira.get(kp)) primeira.set(kp, iso);
+  }
+  const novosNoDia = new Map(); // Setor|Categoria -> clientes cuja 1ª compra do mês foi no dia anterior
+  if(diaAntISO) primeira.forEach((iso, kp) => {
+    if(iso!==diaAntISO) return;
+    const k = kp.slice(0, kp.lastIndexOf('|'));
+    novosNoDia.set(k, (novosNoDia.get(k)||0) + 1);
+  });
+
+  const setores = crSetores();
+  const valor = (mapa, setor, cat, f) => setor===CR_SETOR_TOTAL
+    ? setores.reduce((s, st) => s + f(mapa.get(st+'|'+cat)), 0)
+    : f(mapa.get(setor+'|'+cat));
+  const num = v => Number(v)||0, tam = v => v ? v.size : 0;
+  const metaCob = (setor, cat) => num(((cad.cobertura||{})[setor]||{})[cat]);
+  const metaVbc = (setor, cat) => {
+    const empresa = num((cad.vbc||{})[cat]);
+    if(setor===CR_SETOR_TOTAL) return empresa;
+    const triTotal = setores.reduce((s, st) => s + num(vbcTri.get(st+'|'+cat)), 0);
+    return triTotal>0 ? Math.ceil(num(vbcTri.get(setor+'|'+cat))/triTotal*empresa) : 0;
+  };
+
+  function linhas(setor){
+    const cobertura = CR_CATEGORIAS.map(cat => {
+      let meta = metaCob(setor, cat);
+      if(setor===CR_SETOR_TOTAL && !meta) meta = setores.reduce((s, st) => s + metaCob(st, cat), 0);
+      const efetivo = valor(compradores, setor, cat, tam);
+      const saldo = meta - efetivo, pct = meta>0 ? efetivo/meta : null;
+      const diaAnt = valor(novosNoDia, setor, cat, num);
+      return {cat, meta, efetivo, saldo, pct, ok: pct!=null && pct>=cal.ideal, diaAnt, evolucao: meta - diaAnt,
+        objDia: Math.max(0, Math.ceil(saldo/Math.max(1, cal.restantes)))};
+    });
+    const vbc = CR_CATEGORIAS.map(cat => {
+      const tri = valor(vbcTri, setor, cat, num), meta = metaVbc(setor, cat), efetivo = valor(vbcMes, setor, cat, num);
+      const saldo = meta - efetivo, pct = meta>0 ? efetivo/meta : null;
+      return {cat, tri, meta, efetivo, saldo, pct, ok: pct!=null && pct>=cal.ideal,
+        tendencia: cal.decorridos ? efetivo/cal.decorridos*cal.uteis : null,
+        objDia: Math.max(0, Math.ceil(saldo/Math.max(1, cal.restantes)))};
+    });
+    return {cobertura, vbc};
+  }
+  return {cad, origem, cal, setores, linhas, triIniISO, triFimISO};
+}
+
+/* ---------------------- Render ---------------------- */
+function crSetorLabel(setor){ return setor===CR_SETOR_TOTAL ? '1 — Total da equipe' : scVendedorLabel(setor); }
+function crOkPill(ok, pct){
+  if(pct==null) return '—';
+  return ok ? pillHtml('O', 'var(--good-bg)', 'var(--good-ink)') : pillHtml('X', 'var(--critical-bg)', 'var(--critical-ink)');
+}
+// Tabela fixa (sem ordenação/paginação) com linha de total, como na planilha;
+// também deixa o snapshot para o Relatório A4.
+function crTabela(containerId, headers, rows, total){
+  const el = document.getElementById(containerId);
+  const cell = (h, r) => h.format ? h.format(r[h.key], r) : esc(r[h.key]);
+  let html = '<div class="table-wrap"><table class="datatable"><thead><tr>' +
+    headers.map(h => `<th style="text-align:${h.align||'left'}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(r => { html += '<tr>' + headers.map(h => `<td style="text-align:${h.align||'left'}">${cell(h, r)}</td>`).join('') + '</tr>'; });
+  if(total) html += '<tr class="cr-total">' + headers.map(h => `<td style="text-align:${h.align||'left'}">${total[h.key]==null ? '' : cell(h, total)}</td>`).join('') + '</tr>';
+  el.innerHTML = html + '</tbody></table></div>';
+  el._printSnapshot = {headers, rows: total ? rows.concat([total]) : rows};
+}
+function crSoma(rows, key){ return rows.reduce((s, r) => s + (Number(r[key])||0), 0); }
+
+function renderCrescer(){
+  const wrap = document.getElementById('cr-wrap');
+  if(!wrap) return;
+  const mesEl = document.getElementById('cr-mes'), setorEl = document.getElementById('cr-setor');
+  if(!mesEl.value) mesEl.value = crMesAtualKey();
+  const mesKey = mesEl.value;
+  const res = crCalcular(mesKey);
+  const opcoes = [CR_SETOR_TOTAL].concat(res.setores);
+  const atual = setorEl.value || CR_SETOR_TOTAL;
+  setorEl.innerHTML = opcoes.map(s => `<option value="${esc(s)}">${esc(crSetorLabel(s))}</option>`).join('');
+  setorEl.value = opcoes.includes(atual) ? atual : CR_SETOR_TOTAL;
+  const setor = setorEl.value;
+  const {cobertura, vbc} = res.linhas(setor);
+  const cal = res.cal;
+
+  const cobFeitas = cobertura.filter(l => l.pct!=null && l.pct>=1).length;
+  const vbcFeitas = vbc.filter(l => l.pct!=null && l.pct>=1).length;
+  const abaixoIdeal = cobertura.filter(l => !l.ok).length;
+  renderKPIs('kpi-crescer', [
+    {label:'TT PTS', value: fmtInt(cobFeitas + vbcFeitas), note: 'categorias com 100% (cobertura + VBC)'},
+    {label:'Cobertura — feitas', value: `${cobFeitas} de ${CR_CATEGORIAS.length}`, tone: cobFeitas===CR_CATEGORIAS.length ? 'good' : ''},
+    {label:'VBC — feitas', value: `${vbcFeitas} de ${CR_CATEGORIAS.length}`, tone: vbcFeitas===CR_CATEGORIAS.length ? 'good' : ''},
+    {label:'Ideal do dia', value: fmtPct(cal.ideal), note: `${cal.decorridos} de ${cal.uteis} dias úteis · faltam ${cal.restantes}`},
+    {label:'Cobertura abaixo do ideal', value: `${abaixoIdeal} de ${CR_CATEGORIAS.length}`, tone: abaixoIdeal ? 'warning' : 'good'},
+  ]);
+
+  const avisoCad = res.origem==='semente' ? ' · metas iniciais copiadas da planilha (salve o cadastro para publicar)'
+    : res.origem==='vazio' ? ' · ⚠️ nenhuma meta cadastrada para este mês' : '';
+  document.getElementById('cr-info').textContent =
+    `Vendas de ${fmtDateBR(cal.iniMs)} a ${fmtDateBR(cal.ateMs)} · dia anterior: ${fmtDateBR(cal.diaAnteriorMs)}` +
+    ` · feriados: ${cal.feriados.length ? cal.feriados.map(iso => iso.slice(8,10)+'/'+iso.slice(5,7)).join(', ') : 'nenhum'}` + avisoCad;
+
+  const pctFmt = v => v==null ? '—' : fmtPct(v);
+  crTabela('table-crescer-cob', [
+    {key:'cat', label:'Subcategoria'},
+    {key:'meta', label:'Meta', align:'right', format: fmtInt},
+    {key:'efetivo', label:'Efetivo', align:'right', format: fmtInt},
+    {key:'saldo', label:'Saldo', align:'right', format: fmtInt},
+    {key:'pct', label:'%', align:'right', format: pctFmt},
+    {key:'ok', label:'Ideal', align:'center', format: (v, r) => r.cat==='TOTAL' ? fmtInt(v) : crOkPill(v, r.pct)},
+    {key:'diaAnt', label:'Efet. dia anterior', align:'right', format: fmtInt},
+    {key:'evolucao', label:'Evolução', align:'right', format: fmtInt},
+    {key:'objDia', label:'Obj. por dia', align:'right', format: fmtInt},
+  ], cobertura, {
+    cat:'TOTAL', meta: crSoma(cobertura,'meta'), efetivo: crSoma(cobertura,'efetivo'), saldo: crSoma(cobertura,'saldo'),
+    pct: null, ok: cobertura.filter(l => l.ok).length, diaAnt: crSoma(cobertura,'diaAnt'),
+    evolucao: crSoma(cobertura,'evolucao'), objDia: crSoma(cobertura,'objDia'),
+  });
+
+  const totVbc = {cat:'TOTAL', tri: crSoma(vbc,'tri'), meta: crSoma(vbc,'meta'), efetivo: crSoma(vbc,'efetivo'), saldo: crSoma(vbc,'saldo'),
+    tendencia: crSoma(vbc,'tendencia'), objDia: crSoma(vbc,'objDia')};
+  totVbc.pct = totVbc.meta>0 ? totVbc.efetivo/totVbc.meta : null;
+  totVbc.ok = totVbc.pct!=null && totVbc.pct>=cal.ideal;
+  crTabela('table-crescer-vbc', [
+    {key:'cat', label:'Subcategoria'},
+    {key:'tri', label:'Últ. trimestre', align:'right', format: fmtBRL0},
+    {key:'meta', label:'Meta', align:'right', format: fmtBRL0},
+    {key:'efetivo', label:'Efetivo', align:'right', format: fmtBRL0},
+    {key:'saldo', label:'Saldo', align:'right', format: fmtBRL0},
+    {key:'pct', label:'%', align:'right', format: pctFmt},
+    {key:'tendencia', label:'Tendência', align:'right', format: fmtBRL0},
+    {key:'ok', label:'Ideal', align:'center', format: (v, r) => crOkPill(v, r.pct)},
+    {key:'objDia', label:'Obj. por dia', align:'right', format: fmtBRL0},
+  ], vbc, totVbc);
+  document.getElementById('cr-vbc-sub').textContent =
+    `Meta do Setor = meta da empresa × participação do Setor no VBC de ${fmtDateBR(parseDateOnly(res.triIniISO))} a ${fmtDateBR(parseDateOnly(res.triFimISO))}. Tendência = efetivo ÷ dias decorridos × dias úteis.`;
+
+  crPreencherCadastro(mesKey, res);
+}
+
+/* ---------------------- Cadastro de metas do mês ---------------------- */
+let crPublicando = false;
+function crPreencherCadastro(mesKey, res){
+  const el = document.getElementById('cr-cad-grid');
+  if(!el || el.dataset.mes===mesKey) return; // não apaga o que a pessoa está digitando
+  el.dataset.mes = mesKey;
+  const cad = res.cad;
+  const inp = (attrs, v) => `<input type="number" min="0" step="any" ${attrs} value="${v==null || v==='' ? '' : esc(v)}">`;
+  let html = '<div class="table-wrap"><table class="datatable cr-cad-table"><thead><tr><th>Cobertura (clientes)</th>' +
+    CR_CATEGORIAS.map(c => `<th style="text-align:right">${esc(c)}</th>`).join('') + '</tr></thead><tbody>';
+  [CR_SETOR_TOTAL].concat(res.setores).forEach(st => {
+    html += `<tr><td>${esc(crSetorLabel(st))}</td>` + CR_CATEGORIAS.map(c =>
+      `<td style="text-align:right">${inp(`data-cr-cob="${esc(st)}" data-cr-cat="${esc(c)}"`, ((cad.cobertura||{})[st]||{})[c])}</td>`).join('') + '</tr>';
+  });
+  html += '<tr><td><b>VBC da empresa (R$)</b></td>' + CR_CATEGORIAS.map(c =>
+    `<td style="text-align:right">${inp(`data-cr-vbc="${esc(c)}"`, (cad.vbc||{})[c])}</td>`).join('') + '</tr>';
+  el.innerHTML = html + '</tbody></table></div>';
+  document.getElementById('cr-cad-extras').value = (cad.feriadosExtras||[]).map(iso => iso.split('-').reverse().join('/')).join(', ');
+  document.getElementById('cr-cad-uteis').value = cad.diasUteis || '';
+  document.getElementById('cr-cad-decorridos').value = cad.diasDecorridos!=null ? cad.diasDecorridos : '';
+  document.getElementById('cr-cad-uteis').placeholder = `automático: ${res.cal.uteisAuto}`;
+  document.getElementById('cr-cad-decorridos').placeholder = `automático: ${res.cal.decorridosAuto}`;
+  document.getElementById('cr-cad-titulo').textContent = `Metas e dias úteis — ${mesKey.slice(5,7)}/${mesKey.slice(0,4)}`;
+}
+function crMsg(texto, tipo){
+  const el = document.getElementById('cr-cad-msg');
+  el.textContent = texto || '';
+  el.className = 'nrab-msg' + (tipo==='erro' ? ' is-error' : tipo==='ok' ? ' is-ok' : '');
+}
+function crLerCadastro(){
+  const cobertura = {}, vbc = {};
+  document.querySelectorAll('[data-cr-cob]').forEach(i => {
+    const st = i.dataset.crCob; cobertura[st] = cobertura[st] || {};
+    cobertura[st][i.dataset.crCat] = i.value==='' ? 0 : Number(i.value);
+  });
+  document.querySelectorAll('[data-cr-vbc]').forEach(i => { vbc[i.dataset.crVbc] = i.value==='' ? 0 : Number(i.value); });
+  const extras = [], invalidas = [];
+  document.getElementById('cr-cad-extras').value.split(/[,;\s]+/).filter(Boolean).forEach(t => {
+    const m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+    const mesKey = document.getElementById('cr-mes').value;
+    if(!m){ invalidas.push(t); return; }
+    const ano = m[3] || mesKey.slice(0,4);
+    extras.push(`${ano}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`);
+  });
+  const uteis = document.getElementById('cr-cad-uteis').value, dec = document.getElementById('cr-cad-decorridos').value;
+  return {rec: {cobertura, vbc, feriadosExtras: extras, diasUteis: uteis==='' ? null : Number(uteis), diasDecorridos: dec==='' ? null : Number(dec)}, invalidas};
+}
+
+function initCrescer(){
+  if(!document.getElementById('cr-wrap')) return; // aba não presente neste HTML — módulo fica inerte
+  document.getElementById('cr-mes').value = crMesAtualKey();
+  document.getElementById('cr-mes').addEventListener('change', renderCrescer);
+  document.getElementById('cr-setor').addEventListener('change', renderCrescer);
+  document.getElementById('cr-cad-form').addEventListener('submit', e => {
+    e.preventDefault();
+    if(crPublicando) return;
+    const mesKey = document.getElementById('cr-mes').value;
+    const {rec, invalidas} = crLerCadastro();
+    if(invalidas.length){ crMsg(`Datas extras inválidas: ${invalidas.join(', ')} (use dd/mm ou dd/mm/aaaa).`, 'erro'); return; }
+    const meses = Object.assign({}, (DATA.crescer && DATA.crescer.meses) || {}, {[mesKey]: rec});
+    crPublicando = true;
+    const btn = document.getElementById('cr-cad-salvar'); btn.disabled = true;
+    crMsg('Publicando metas para todos…', '');
+    publicarCampoDATA('crescer', {meses}, 'metas do Crescer +', 'crescer-metas').then(r => {
+      crPublicando = false; btn.disabled = false;
+      if(r.ok) crMsg(`Metas de ${mesKey.slice(5,7)}/${mesKey.slice(0,4)} salvas e publicadas para todos.`, 'ok');
+      else crMsg(`Não consegui publicar (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado. Tente de novo.`, 'erro');
+      document.getElementById('cr-cad-grid').dataset.mes = '';
+      renderCrescer();
+    });
+  });
+  RENDERERS.crescer = renderCrescer;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -4311,6 +4646,7 @@ function init(){
   initNrab();
   initMeta20();
   initSemCompra();
+  initCrescer();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

@@ -267,6 +267,23 @@ a{color:var(--accent-2);}
 .sc-atalho:hover{background:var(--accent-soft);}
 .sc-semana-info{font-size:11.5px; color:var(--text-muted);}
 
+/* ============================== CRESCER + ============================== */
+.mapa-lookup input[type="month"]{
+  font-family:var(--font-body); font-size:13px; font-weight:600; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:6px 10px;
+}
+.mapa-lookup select{
+  font-family:var(--font-body); font-size:13px; font-weight:600; color:var(--text);
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:7px 10px; max-width:100%;
+}
+.cr-info{margin:-6px 0 14px;}
+.datatable tr.cr-total td{font-weight:700; border-top:2px solid var(--border-strong); background:var(--surface-2);}
+.cr-cad-table input{
+  width:110px; max-width:100%; text-align:right; font-family:var(--font-body); font-size:12.5px; font-weight:600;
+  color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:5px 8px;
+}
+#cr-cad-form .nrab-form{margin-top:12px;}
+
 /* ============================== MAPA DA VENDA (busca por cliente/SOLD) ============================== */
 .mapa-lookup{
   background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius);

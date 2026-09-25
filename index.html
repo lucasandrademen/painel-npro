@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=5">
+<link rel="stylesheet" href="assets/app.css?v=6">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -525,6 +525,68 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="crescer">
+    <div class="section-title">Acompanhamento Categorias Crescer +</div>
+    <div class="section-note">
+      Réplica da aba RESUMO da planilha do Crescer +: Cobertura (clientes que compraram a categoria no mês, contados
+      pelo Sold) e VBC (faturamento da categoria) de cada Setor, contra a meta, o ideal do dia e o objetivo por dia.
+      As vendas saem da planilha enviada em <b>Enviar Vendas</b>; as metas do mês são cadastradas no fim da página.
+      Dias úteis descontam os feriados nacionais e de Sergipe.
+    </div>
+
+    <div class="mapa-lookup">
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="cr-setor"></select>
+      </div>
+      <div>
+        <span class="flabel">Mês</span>
+        <input type="month" id="cr-mes" aria-label="Mês de referência">
+      </div>
+    </div>
+
+    <div id="cr-wrap">
+      <div class="kpi-row" id="kpi-crescer"></div>
+      <div class="panel-sub cr-info" id="cr-info"></div>
+      <div class="panel">
+        <h3>Cobertura</h3>
+        <div class="panel-sub">Ideal = % de dias úteis já decorridos. Obj. por dia = saldo ÷ dias úteis restantes. Efet. dia anterior = clientes que compraram a categoria pela 1ª vez no mês no último dia útil. Evolução = meta − efet. dia anterior (mesma conta da planilha).</div>
+        <div id="table-crescer-cob"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>VBC</h3>
+        <div class="panel-sub" id="cr-vbc-sub"></div>
+        <div id="table-crescer-vbc"></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
+        <h3 id="cr-cad-titulo">Metas e dias úteis</h3>
+        <div class="panel-sub">Cobertura: meta de clientes por Setor e categoria (a linha "Total da equipe" em branco soma os Setores). VBC: meta da empresa — cada Setor recebe a sua parte pelo trimestre anterior. Salvar publica para todos, só para o mês selecionado.</div>
+        <form id="cr-cad-form">
+          <div id="cr-cad-grid"></div>
+          <div class="nrab-form">
+            <div class="nrab-field" style="min-width:260px;">
+              <span class="flabel">Feriados/pontos extras (dd/mm)</span>
+              <input type="text" id="cr-cad-extras" placeholder="Ex.: 17/03, 08/12" autocomplete="off">
+            </div>
+            <div class="nrab-field nrab-field-narrow">
+              <span class="flabel">Dias úteis</span>
+              <input type="number" id="cr-cad-uteis" min="1" step="1">
+            </div>
+            <div class="nrab-field nrab-field-narrow">
+              <span class="flabel">Dias decorridos</span>
+              <input type="number" id="cr-cad-decorridos" min="0" step="1">
+            </div>
+            <div class="nrab-field-actions">
+              <button type="submit" class="mapa-search-btn" id="cr-cad-salvar">Salvar metas do mês</button>
+            </div>
+          </div>
+          <div class="nrab-msg" id="cr-cad-msg"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -554,6 +616,6 @@
 </div>
 
 
-<script src="assets/app.js?v=14" defer></script>
+<script src="assets/app.js?v=15" defer></script>
 </body>
 </html>
