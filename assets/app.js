@@ -2745,7 +2745,8 @@ const PRINT_CONFIG = {
     headerExtra: () => {
       const st = document.getElementById('br-setor').value, mes = document.getElementById('br-mes').value;
       return `<div class="print-filters-row"><span class="print-filter-chip"><b>Setor:</b> ${esc(brLabel(st))}</span>`
-        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span></div>`;
+        + `<span class="print-filter-chip"><b>Mês:</b> ${esc(mes.slice(5,7) + '/' + mes.slice(0,4))}</span>`
+        + `<span class="br-print-logos"><img src="assets/logo-brasileirao-escudo.png" alt=""><img src="assets/logo-brasileirao-titulo.png" alt="Brasileirão Professional 2026"></span></div>`;
     },
   },
   crescer: {
