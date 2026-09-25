@@ -73,8 +73,8 @@ function positionTooltip(evt){
 function hideTooltip(){ tooltipEl.classList.remove('show'); }
 
 /* ============================== TABS ============================== */
-// Abas com "grupo" ficam juntas num único botão do menu principal e são
-// trocadas por um submenu logo abaixo dele (cada uma continua sendo um
+// Abas com "grupo" ficam juntas num único botão do menu principal e aparecem
+// todas na mesma página, uma embaixo da outra (cada uma continua sendo um
 // painel próprio, com seus filtros e impressão A4).
 const TAB_GRUPOS = { estvend: {label:"Estoque VS Vendas"} };
 const TABS = [
@@ -101,42 +101,44 @@ function initTabs(){
     if(!t.grupo) topo.push({id:t.id, label:t.label});
     else if(!topo.some(x => x.id===t.grupo)) topo.push({id:t.grupo, label:TAB_GRUPOS[t.grupo].label, grupo:true});
   });
-  const ultimaDoGrupo = {};
-  TABS.forEach(t => { if(t.grupo && !ultimaDoGrupo[t.grupo]) ultimaDoGrupo[t.grupo] = t.id; });
   nav.innerHTML = topo.map((t,i) => `<button class="tabbtn${i===0?' active':''}" data-tabid="${t.id}">${esc(t.label)}</button>`).join('');
+  TABS.forEach(t => {
+    const p = document.querySelector(`.tabpanel[data-tab="${t.id}"]`);
+    if(p && t.grupo) p.classList.add('tabpanel-grupo');
+  });
 
+  // Barra de atalhos do grupo: todas as seções do grupo ficam abertas, uma
+  // embaixo da outra, e cada botão só rola a página até a seção.
   const sub = document.createElement('div');
   sub.className = 'subnav';
   nav.parentNode.appendChild(sub);
+  const topoFixo = () => nav.parentNode.getBoundingClientRect().height + 8;
 
-  function mostrarPainel(id){
-    document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
-    document.querySelector(`.tabpanel[data-tab="${id}"]`).classList.add('active');
+  function mostrar(idOuGrupo){
+    const ids = TAB_GRUPOS[idOuGrupo] ? TABS.filter(t => t.grupo===idOuGrupo).map(t => t.id) : [idOuGrupo];
+    document.querySelectorAll('.tabpanel').forEach(p => p.classList.toggle('active', ids.includes(p.dataset.tab)));
     window.scrollTo({top:0, behavior:'instant' in window ? 'instant' : 'auto'});
   }
   function montarSubnav(grupo){
     if(!grupo){ sub.innerHTML = ''; sub.style.display = 'none'; return; }
     sub.style.display = '';
-    sub.innerHTML = '<div class="subnav-inner">' + TABS.filter(t => t.grupo===grupo).map(t =>
-      `<button class="subtabbtn${t.id===ultimaDoGrupo[grupo]?' active':''}" data-subtabid="${t.id}">${esc(t.label)}</button>`).join('') + '</div>';
+    sub.innerHTML = '<div class="subnav-inner"><span class="subnav-label">Ir para:</span>' + TABS.filter(t => t.grupo===grupo).map(t =>
+      `<button class="subtabbtn" data-subtabid="${t.id}">${esc(t.label)}</button>`).join('') + '</div>';
     sub.querySelectorAll('.subtabbtn').forEach(b => b.addEventListener('click', () => {
-      sub.querySelectorAll('.subtabbtn').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      ultimaDoGrupo[grupo] = b.dataset.subtabid;
-      mostrarPainel(b.dataset.subtabid);
+      const alvo = document.querySelector(`.tabpanel[data-tab="${b.dataset.subtabid}"]`);
+      if(alvo) window.scrollTo({top: alvo.getBoundingClientRect().top + window.scrollY - topoFixo(), behavior:'auto'});
     }));
   }
   nav.querySelectorAll('.tabbtn').forEach(btn => {
     btn.addEventListener('click', () => {
       nav.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      const grupo = TAB_GRUPOS[btn.dataset.tabid] ? btn.dataset.tabid : null;
-      montarSubnav(grupo);
-      mostrarPainel(grupo ? ultimaDoGrupo[grupo] : btn.dataset.tabid);
+      montarSubnav(TAB_GRUPOS[btn.dataset.tabid] ? btn.dataset.tabid : null);
+      mostrar(btn.dataset.tabid);
     });
   });
   const primeiro = topo[0];
-  montarSubnav(primeiro && primeiro.grupo ? primeiro.id : null);
+  if(primeiro){ montarSubnav(primeiro.grupo ? primeiro.id : null); mostrar(primeiro.id); }
 }
 
 /* ============================== PILL STYLES ============================== */

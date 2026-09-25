@@ -215,11 +215,12 @@ a{color:var(--accent-2);}
   transition:background .12s ease, color .12s ease;
 }
 .subtabbtn:hover{color:#fff; background:rgba(255,255,255,0.12);}
-.subtabbtn.active{color:var(--rail); background:var(--wave); border-color:var(--wave);}
 .subtabbtn:focus-visible{outline:2px solid var(--wave); outline-offset:1px;}
 @media (max-width:600px){ .subnav-inner{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;} .subnav-inner::-webkit-scrollbar{display:none;} }
 
 .tabpanel{display:none; padding-top:20px;}
+.tabpanel-grupo.active + .tabpanel-grupo.active{margin-top:30px; padding-top:26px; border-top:2px solid var(--border);}
+.subnav-label{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.6px; color:rgba(255,255,255,0.6); align-self:center; margin-right:2px; white-space:nowrap;}
 .tabpanel.active{display:block;}
 
 .section-title{font-size:20px; font-weight:600; color:var(--text); margin-bottom:2px;}
