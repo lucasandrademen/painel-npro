@@ -4903,6 +4903,7 @@ function brCalcular(mesKey){
   const atendente = (sold, origem) => { const f = forca.get(sold); if(!f) return null; return origem==='BEBIDAS' ? (f.beb || f.npro) : (f.npro || f.beb); };
 
   const compradores = new Map(), compradoresAnt = new Map(), vbcMes = new Map(), vbcTri = new Map();
+  // compradoresAnt: clientes (Sold) que compraram a subcategoria NO dia anterior (cliente × subcategoria × data).
   const baseSetor = new Map(); // Setor -> Set(Sold) que comprou NPRO no trimestre
   const porCliente = new Map(); // Setor|Sold -> {sub: faturamento}
   for(const r of (DATA.baseVendas||[])){
@@ -4921,7 +4922,7 @@ function brCalcular(mesKey){
     const k = setor + '|' + sub;
     vbcMes.set(k, (vbcMes.get(k)||0) + fat);
     let c = compradores.get(k); if(!c){ c = new Set(); compradores.set(k, c); } c.add(sold);
-    if(antISO && iso<=antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
+    if(antISO && iso===antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
     const kc = setor + '|' + sold;
     let o = porCliente.get(kc); if(!o){ o = {}; porCliente.set(kc, o); }
     o[sub] = (o[sub]||0) + fat;
@@ -4934,7 +4935,7 @@ function brCalcular(mesKey){
     const k = FORA + '|' + sub, sold = String(r[0]);
     vbcMes.set(k, (vbcMes.get(k)||0) + (Number(r[9])||0));
     let c = compradores.get(k); if(!c){ c = new Set(); compradores.set(k, c); } c.add(sold);
-    if(antISO && iso<=antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
+    if(antISO && iso===antISO){ let a = compradoresAnt.get(k); if(!a){ a = new Set(); compradoresAnt.set(k, a); } a.add(sold); }
   }
   const num = v => Number(v)||0;
   const base = st => (baseSetor.get(st) || new Set()).size;
