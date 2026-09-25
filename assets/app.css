@@ -292,21 +292,48 @@ a{color:var(--accent-2);}
 .cr-print-crescer{margin-left:auto; display:inline-flex; align-items:center; background:var(--rail); border-radius:8px; padding:4px 8px;}
 .cr-print-crescer img{height:40px; width:auto; display:block;}
 .cr-info{margin:-6px 0 14px;}
-.br-banner{
-  display:flex; align-items:center; gap:14px 24px; flex-wrap:wrap;
-  background:#FFFFFF; border:1px solid var(--border); border-left:6px solid #A51E36; border-radius:var(--radius);
-  padding:12px 22px; margin-bottom:14px; box-shadow:var(--shadow);
+/* Paleta própria da aba Brasileirão (vermelho + dourado do Brasileirão Professional). */
+.tabpanel[data-tab="brasileirao"]{
+  --accent:#A51E36; --accent-ink:#7A1528; --accent-2:#C2334D; --accent-soft:#FBEFF1;
+  --surface-2:#FBF4E8; --surface-3:#F5EADB; --border:#EFE1D2; --border-strong:#E5D0BC; --bg:#FFFBF5;
+  --text:#2E1A1E; --text-muted:#7B5A60; --text-faint:rgba(123,90,96,0.7);
+  --wave:#B8963E; --br-ouro:#B8963E; --br-ouro-soft:#F6EBD2;
 }
-.br-banner-escudo{height:92px; width:auto; display:block; flex-shrink:0;}
-.br-banner-titulo{height:78px; width:auto; max-width:100%; display:block; flex:0 1 auto; object-fit:contain;}
-.br-banner-dir{margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:6px;}
+.tabpanel[data-tab="brasileirao"] .section-title{color:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] .kpi-card{border-top-color:var(--accent);}
+.tabpanel[data-tab="brasileirao"] .kpi-card:first-child{border-top-color:var(--br-ouro); background:linear-gradient(180deg, var(--br-ouro-soft), var(--surface) 70%);}
+.tabpanel[data-tab="brasileirao"] .kpi-value{color:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] table.datatable thead th:not([class*="cr-c-"]){background:var(--accent); color:#FFFFFF; border-bottom-color:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] table.datatable thead th:not([class*="cr-c-"]):hover{background:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] .panel h3{color:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] .mapa-lookup{background:var(--surface-2); border-color:var(--border);}
+.tabpanel[data-tab="brasileirao"] .datatable tr.cr-total td{background:var(--br-ouro-soft); border-top-color:var(--br-ouro); color:var(--accent-ink);}
+.tabpanel[data-tab="brasileirao"] .print-a4-btn{color:var(--accent); border-color:var(--accent);}
+.tabpanel[data-tab="brasileirao"] .print-a4-btn:hover{background:var(--accent); color:#fff;}
+.tabpanel[data-tab="brasileirao"] .mapa-search-btn{background:var(--accent); border-color:var(--accent);}
+.tabpanel[data-tab="brasileirao"] .mapa-search-btn:hover{background:var(--accent-ink);}
+.br-ranking-panel{border-top:4px solid var(--br-ouro) !important;}
+.br-ranking-panel tbody tr:first-child td{background:var(--br-ouro-soft); font-weight:700;}
+.br-lider{font-weight:800; color:var(--accent);}
+
+.br-banner{
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px 24px;
+  background:#FFFFFF; border:1px solid var(--border); border-top:5px solid var(--accent); border-bottom:3px solid var(--br-ouro);
+  border-radius:var(--radius); padding:14px 22px; margin-bottom:14px; box-shadow:var(--shadow);
+}
+.br-banner-escudo{height:96px; width:auto; display:block; justify-self:start;}
+.br-banner-titulo{height:104px; width:auto; max-width:100%; display:block; justify-self:center; object-fit:contain;}
+.br-banner-dir{justify-self:end; display:flex; flex-direction:column; align-items:flex-end; gap:6px;}
 .br-banner-nestle{height:30px; width:auto; display:block;}
-.br-banner-sub{font-size:12.5px; font-weight:700; color:#A51E36;}
-@media (max-width:600px){ .br-banner-escudo{height:64px;} .br-banner-titulo{height:52px;} .br-banner-dir{margin-left:0; align-items:flex-start;} }
+.br-banner-sub{font-size:12.5px; font-weight:700; color:var(--accent);}
+@media (max-width:700px){
+  .br-banner{grid-template-columns:1fr; justify-items:center; text-align:center;}
+  .br-banner-escudo{height:64px; justify-self:center;}
+  .br-banner-titulo{height:70px;}
+  .br-banner-dir{justify-self:center; align-items:center;}
+}
 .br-print-logos{margin-left:auto; display:inline-flex; align-items:center; gap:8px;}
 .br-print-logos img{height:40px; width:auto; display:block;}
-.br-ranking-panel{border-top:3px solid var(--wave);}
-.br-lider{font-weight:800; color:var(--accent-ink);}
 .br-legenda{display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px;}
 /* Cor por categoria (Crescer +): célula clara, cabeçalho/total mais forte, texto da etiqueta. */
 .datatable td.cr-c-lac{background:#EEF4FF;}
