@@ -4527,12 +4527,13 @@ function crRenderPorVendedor(res){
 
 function crRenderPorCliente(res, setorSel){
   const {carteira} = scDados();
-  const filtro = (document.getElementById('cr-cli-filtro')||{}).value || '';
+  const val = id => (document.getElementById(id)||{}).value || '';
+  const filtro = val('cr-cli-filtro'), canalSel = val('cr-cli-canal'), diaSel = val('cr-cli-dia');
   const infoCarteira = new Map(carteira.map(c => [c.setor + '|' + c.sold, c]));
   const chaves = new Set();
   carteira.forEach(c => chaves.add(c.setor + '|' + c.sold));
   res.porCliente.forEach((_, k) => chaves.add(k));
-  const rows = [];
+  const rows = [], todos = [];
   chaves.forEach(k => {
     const [setor, sold] = k.split('|');
     if(setor==='506' || (setorSel!==CR_SETOR_TOTAL && setor!==setorSel)) return;
@@ -4547,8 +4548,20 @@ function crRenderPorCliente(res, setorSel){
       if(comprou){ o.cobertas++; if(CR_CATEGORIAS.includes(c)) o.cobertasPrograma++; }
       o.vbcTotal += compras[c] || 0;
     });
+    o.dia = cli && cli.dia ? String(cli.dia) : '0';
+    todos.push(o);
+  });
+  // Opções de Canal: só os canais que existem no Setor escolhido (o valor atual é mantido se ainda existir).
+  const selCanal = document.getElementById('cr-cli-canal');
+  const canais = Array.from(new Set(todos.map(o => o.canal))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  selCanal.innerHTML = '<option value="">(Todos)</option>' + canais.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  selCanal.value = canais.includes(canalSel) ? canalSel : '';
+  const canalAtivo = selCanal.value;
+  todos.forEach(o => {
     if(filtro==='sem' && o.cobertas>0) return;
     if(filtro==='com' && o.cobertas===0) return;
+    if(canalAtivo && o.canal!==canalAtivo) return;
+    if(diaSel && o.dia!==diaSel) return;
     rows.push(o);
   });
   const headers = [
@@ -4690,7 +4703,7 @@ function initCrescer(){
   document.getElementById('cr-mes').value = crMesAtualKey();
   document.getElementById('cr-mes').addEventListener('change', renderCrescer);
   document.getElementById('cr-setor').addEventListener('change', renderCrescer);
-  document.getElementById('cr-cli-filtro').addEventListener('change', renderCrescer);
+  ['cr-cli-filtro','cr-cli-canal','cr-cli-dia'].forEach(id => document.getElementById(id).addEventListener('change', renderCrescer));
   document.getElementById('cr-cad-form').addEventListener('submit', e => {
     e.preventDefault();
     if(crPublicando) return;
