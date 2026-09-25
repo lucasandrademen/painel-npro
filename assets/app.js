@@ -3934,9 +3934,6 @@ function initMeta20(){
    do dia 1º do mês da data inicial até a data final.
    ========================================================================= */
 
-// A planilha de Vendas só traz o código do supervisor; o nome vem da aba
-// "SEM COMPRAS DIARIO" da planilha "CLIENTES S-COMPRA PROFESSIONAL".
-const SC_SUPERVISOR_NOMES = { '500': 'MATHEUS MEDEIROS OLIVEIRA' };
 const SC_DIAS = {1:'Segunda', 2:'Terça', 3:'Quarta', 4:'Quinta', 5:'Sexta'};
 const SC_DIA_MS = 86400000;
 const SC_STATUS_STYLE = {
@@ -4087,7 +4084,8 @@ function scProximaVisita(cli, aPartirMs){
 /* ---------------------- Filtros ---------------------- */
 // Vendedor é mostrado só pelo código (Setor), em todas as abas — a pedido do usuário.
 function scVendedorLabel(setor){ return String(setor); }
-function scSupervisorLabel(cod){ return cod==null ? '—' : (SC_SUPERVISOR_NOMES[cod] ? cod + ' — ' + SC_SUPERVISOR_NOMES[cod] : String(cod)); }
+// Supervisor também só pelo código — a pedido do usuário.
+function scSupervisorLabel(cod){ return cod==null ? '—' : String(cod); }
 function scLerFiltros(){
   const val = id => (document.getElementById(id)||{}).value || '';
   return {
@@ -4158,7 +4156,7 @@ function scCalcular(f){
       sold: cli.sold, setor: cli.setor,
       razao: cli.razao || ((clienteMetaMap && clienteMetaMap.get(cli.sold)) || {}).razaoSocial || '—',
       vendedor: scVendedorLabel(cli.setor),
-      supervisor: cli.supervisor!=null ? (SC_SUPERVISOR_NOMES[cli.supervisor] || cli.supervisor) : '—',
+      supervisor: scSupervisorLabel(cli.supervisor),
       canal: cli.canal || '—',
       regiao: [cli.cidade, cli.bairro].filter(Boolean).join(' · ') || '—',
       visita: cli.dia ? SC_DIAS[cli.dia] : '—', ciclo: scCicloLabel(cli.ciclo),
