@@ -4537,7 +4537,7 @@ function crRenderPorCliente(res, setorSel){
     const [setor, sold] = k.split('|');
     if(setor==='506' || (setorSel!==CR_SETOR_TOTAL && setor!==setorSel)) return;
     const cli = infoCarteira.get(k), compras = res.porCliente.get(k) || {};
-    const o = {sold, setor, vendedor: scVendedorLabel(setor),
+    const o = {sold, setor, vendedor: setor,
       razao: (cli && cli.razao) || ((clienteMetaMap && clienteMetaMap.get(sold)) || {}).razaoSocial || '—',
       canal: (cli && cli.canal) || '—', visita: cli && cli.dia ? SC_DIAS[cli.dia] : '—', ciclo: cli ? scCicloLabel(cli.ciclo) : '—',
       carteira: cli ? 'Sim' : 'Não', cobertas: 0, cobertasPrograma: 0, vbcTotal: 0};
