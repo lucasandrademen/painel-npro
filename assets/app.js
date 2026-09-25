@@ -4588,8 +4588,7 @@ function renderCrescer(){
   setorEl.value = opcoes.includes(atual) ? atual : CR_SETOR_TOTAL;
   const setor = setorEl.value;
   const {cobertura, vbc} = res.linhas(setor);
-  const nomeMes = new Date(Date.UTC(Number(mesKey.slice(0,4)), Number(mesKey.slice(5,7))-1, 1)).toLocaleDateString('pt-BR', {month:'long', timeZone:'UTC'});
-  document.getElementById('cr-banner-titulo').textContent = `Acompanhamento Categorias Crescer + · ${nomeMes.toUpperCase()} ${mesKey.slice(2,4)} NPRO`;
+  document.getElementById('cr-banner-titulo').textContent = 'Acompanhamento Categorias Crescer + NPRO';
   document.getElementById('cr-banner-sub').textContent = crSetorLabel(setor);
   const cal = res.cal;
 
