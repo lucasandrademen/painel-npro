@@ -73,16 +73,20 @@ function positionTooltip(evt){
 function hideTooltip(){ tooltipEl.classList.remove('show'); }
 
 /* ============================== TABS ============================== */
+// Abas com "grupo" ficam juntas num único botão do menu principal e são
+// trocadas por um submenu logo abaixo dele (cada uma continua sendo um
+// painel próprio, com seus filtros e impressão A4).
+const TAB_GRUPOS = { estvend: {label:"Estoque VS Vendas"} };
 const TABS = [
-  {id:"dashboard", label:"Dashboard"},
-  {id:"sku", label:"Estoque × SKU"},
-  {id:"dde", label:"DDE"},
-  {id:"risco", label:"Risco de Ruptura"},
-  {id:"parado", label:"Estoque Parado"},
-  {id:"giro", label:"Venda × Estoque"},
-  {id:"cross", label:"Cross-sell"},
-  {id:"cobertura", label:"Cobertura"},
-  {id:"painel", label:"Painel Executivo"},
+  {id:"dashboard", label:"Dashboard", grupo:"estvend"},
+  {id:"sku", label:"Estoque × SKU", grupo:"estvend"},
+  {id:"dde", label:"DDE", grupo:"estvend"},
+  {id:"risco", label:"Risco de Ruptura", grupo:"estvend"},
+  {id:"parado", label:"Estoque Parado", grupo:"estvend"},
+  {id:"giro", label:"Venda × Estoque", grupo:"estvend"},
+  {id:"cross", label:"Cross-sell", grupo:"estvend"},
+  {id:"cobertura", label:"Cobertura", grupo:"estvend"},
+  {id:"painel", label:"Painel Executivo", grupo:"estvend"},
   {id:"mapa", label:"Mapa da Venda"},
   {id:"nrab", label:"Acompanhamento NRAB"},
   {id:"meta20", label:"Meta 20+"},
@@ -91,16 +95,48 @@ const TABS = [
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
-  nav.innerHTML = TABS.map((t,i) => `<button class="tabbtn${i===0?' active':''}" data-tabid="${t.id}">${esc(t.label)}</button>`).join('');
+  // Menu principal: abas soltas + um botão por grupo (na posição da 1ª aba do grupo).
+  const topo = [];
+  TABS.forEach(t => {
+    if(!t.grupo) topo.push({id:t.id, label:t.label});
+    else if(!topo.some(x => x.id===t.grupo)) topo.push({id:t.grupo, label:TAB_GRUPOS[t.grupo].label, grupo:true});
+  });
+  const ultimaDoGrupo = {};
+  TABS.forEach(t => { if(t.grupo && !ultimaDoGrupo[t.grupo]) ultimaDoGrupo[t.grupo] = t.id; });
+  nav.innerHTML = topo.map((t,i) => `<button class="tabbtn${i===0?' active':''}" data-tabid="${t.id}">${esc(t.label)}</button>`).join('');
+
+  const sub = document.createElement('div');
+  sub.className = 'subnav';
+  nav.parentNode.appendChild(sub);
+
+  function mostrarPainel(id){
+    document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`.tabpanel[data-tab="${id}"]`).classList.add('active');
+    window.scrollTo({top:0, behavior:'instant' in window ? 'instant' : 'auto'});
+  }
+  function montarSubnav(grupo){
+    if(!grupo){ sub.innerHTML = ''; sub.style.display = 'none'; return; }
+    sub.style.display = '';
+    sub.innerHTML = '<div class="subnav-inner">' + TABS.filter(t => t.grupo===grupo).map(t =>
+      `<button class="subtabbtn${t.id===ultimaDoGrupo[grupo]?' active':''}" data-subtabid="${t.id}">${esc(t.label)}</button>`).join('') + '</div>';
+    sub.querySelectorAll('.subtabbtn').forEach(b => b.addEventListener('click', () => {
+      sub.querySelectorAll('.subtabbtn').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      ultimaDoGrupo[grupo] = b.dataset.subtabid;
+      mostrarPainel(b.dataset.subtabid);
+    }));
+  }
   nav.querySelectorAll('.tabbtn').forEach(btn => {
     btn.addEventListener('click', () => {
       nav.querySelectorAll('.tabbtn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
-      document.querySelectorAll('.tabpanel').forEach(p=>p.classList.remove('active'));
-      document.querySelector(`.tabpanel[data-tab="${btn.dataset.tabid}"]`).classList.add('active');
-      window.scrollTo({top:0, behavior:'instant' in window ? 'instant' : 'auto'});
+      const grupo = TAB_GRUPOS[btn.dataset.tabid] ? btn.dataset.tabid : null;
+      montarSubnav(grupo);
+      mostrarPainel(grupo ? ultimaDoGrupo[grupo] : btn.dataset.tabid);
     });
   });
+  const primeiro = topo[0];
+  montarSubnav(primeiro && primeiro.grupo ? primeiro.id : null);
 }
 
 /* ============================== PILL STYLES ============================== */

@@ -203,6 +203,22 @@ a{color:var(--accent-2);}
 .tabbtn:hover{color:#fff;}
 .tabbtn.active{color:#fff; border-bottom-color:var(--wave);}
 
+.subnav{background:#0A3D55; border-top:1px solid rgba(255,255,255,0.06);}
+.subnav-inner{
+  max-width:var(--shell-max); margin:0 auto; padding:6px var(--shell-pad-x);
+  display:flex; flex-wrap:wrap; gap:6px;
+}
+.subtabbtn{
+  font-family:var(--font-body); font-weight:600; font-size:11.5px;
+  color:rgba(255,255,255,0.78); background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.10);
+  border-radius:999px; padding:5px 12px; cursor:pointer; white-space:nowrap;
+  transition:background .12s ease, color .12s ease;
+}
+.subtabbtn:hover{color:#fff; background:rgba(255,255,255,0.12);}
+.subtabbtn.active{color:var(--rail); background:var(--wave); border-color:var(--wave);}
+.subtabbtn:focus-visible{outline:2px solid var(--wave); outline-offset:1px;}
+@media (max-width:600px){ .subnav-inner{flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;} .subnav-inner::-webkit-scrollbar{display:none;} }
+
 .tabpanel{display:none; padding-top:20px;}
 .tabpanel.active{display:block;}
 
