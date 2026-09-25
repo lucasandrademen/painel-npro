@@ -3655,7 +3655,6 @@ function meta20ObjPreencherForm(rec){
   meta20ObjEditId = rec.id;
   document.getElementById('meta20-obj-form-title').textContent = `Editar Meta — Setor ${rec.setor}`;
   document.getElementById('meta20-obj-input-setor').value = rec.setor;
-  document.getElementById('meta20-obj-input-vendedor').value = rec.vendedor || '';
   document.getElementById('meta20-obj-input-valor').value = rec.objetivo;
   document.getElementById('meta20-obj-btn-salvar').textContent = 'Atualizar Meta';
   document.getElementById('meta20-obj-btn-cancelar').style.display = '';
@@ -3668,13 +3667,12 @@ function renderMeta20ObjTable(){
   makeTable('table-meta20-obj', {
     headers: [
       {key:'setor', label:'Setor'},
-      {key:'vendedor', label:'Vendedor'},
       {key:'objetivo', label:'Objetivo (R$/mês)', align:'right', format:fmtBRL0},
       {key:'acoes', label:'', format:v=>v},
     ],
     rows: META20_OBJETIVOS,
     getRow: r => ({
-      setor: r.setor, vendedor: r.vendedor || '—', objetivo: r.objetivo,
+      setor: r.setor, objetivo: r.objetivo,
       acoes: `<div class="nrab-actions-cell">
         <button type="button" class="nrab-link-btn" data-meta20obj-edit="${esc(r.id)}">Editar</button>
         <button type="button" class="nrab-link-btn is-danger" data-meta20obj-del="${esc(r.id)}">Excluir</button>
@@ -3880,46 +3878,19 @@ function renderMeta20(){
   renderMeta20Tabela();
 }
 
-function meta20BuscarVendedorPorSetor(setor){
-  const lista = (DATA.meta20 && DATA.meta20.vendedoresPorSetor) || [];
-  for(const [s,v] of lista){ if(String(s)===String(setor)) return v; }
-  return null;
-}
-
-// Preenche o campo Vendedor sozinho ao digitar/escolher o Setor (dado que já
-// vem na planilha de Vendas, aba "BASE"). Só sobrescreve o campo se ele estiver
-// vazio ou ainda contiver o último valor preenchido automaticamente — assim,
-// se a pessoa editar o nome à mão, essa edição não é apagada depois.
-let meta20VendedorAutoValor = '';
-function meta20AutoPreencherVendedor(){
-  const setorInput = document.getElementById('meta20-obj-input-setor');
-  const vendedorInput = document.getElementById('meta20-obj-input-vendedor');
-  if(!setorInput || !vendedorInput) return;
-  const encontrado = meta20BuscarVendedorPorSetor(setorInput.value.trim());
-  if(encontrado==null) return;
-  if(vendedorInput.value.trim()==='' || vendedorInput.value===meta20VendedorAutoValor){
-    vendedorInput.value = encontrado;
-    meta20VendedorAutoValor = encontrado;
-  }
-}
-
 function initMeta20(){
   const form = document.getElementById('meta20-obj-form');
   if(!form) return; // aba não presente neste HTML — módulo fica inerte
-  const setorInput = document.getElementById('meta20-obj-input-setor');
-  setorInput.addEventListener('input', meta20AutoPreencherVendedor);
-  setorInput.addEventListener('change', meta20AutoPreencherVendedor);
   form.addEventListener('submit', e => {
     e.preventDefault();
     if(meta20Publicando) return;
     const setor = document.getElementById('meta20-obj-input-setor').value.trim();
-    const vendedor = document.getElementById('meta20-obj-input-vendedor').value.trim();
     const objetivo = Number(document.getElementById('meta20-obj-input-valor').value);
     if(!setor || !(objetivo>0)){
       meta20ObjMsg('Preencha o Setor e um Objetivo maior que zero.', 'erro');
       return;
     }
-    const rec = {id: meta20ObjEditId || meta20ObjProximoId(), setor, vendedor, objetivo};
+    const rec = {id: meta20ObjEditId || meta20ObjProximoId(), setor, objetivo};
     meta20Publicando = true;
     const btn = document.getElementById('meta20-obj-btn-salvar');
     if(btn) btn.disabled = true;
@@ -4114,12 +4085,8 @@ function scProximaVisita(cli, aPartirMs){
 }
 
 /* ---------------------- Filtros ---------------------- */
-function scVendedorNome(setor){
-  const lista = (DATA.meta20 && DATA.meta20.vendedoresPorSetor) || [];
-  for(const [s,v] of lista){ if(String(s)===String(setor) && v) return v; }
-  return null;
-}
-function scVendedorLabel(setor){ const n = scVendedorNome(setor); return n ? setor + ' — ' + n : setor; }
+// Vendedor é mostrado só pelo código (Setor), em todas as abas — a pedido do usuário.
+function scVendedorLabel(setor){ return String(setor); }
 function scSupervisorLabel(cod){ return cod==null ? '—' : (SC_SUPERVISOR_NOMES[cod] ? cod + ' — ' + SC_SUPERVISOR_NOMES[cod] : String(cod)); }
 function scLerFiltros(){
   const val = id => (document.getElementById(id)||{}).value || '';
@@ -4471,7 +4438,7 @@ function crCalcular(mesKey){
 }
 
 /* ---------------------- Render ---------------------- */
-function crSetorLabel(setor){ return setor===CR_SETOR_TOTAL ? '1 — Total da equipe' : scVendedorLabel(setor); }
+function crSetorLabel(setor){ return setor===CR_SETOR_TOTAL ? '1 (Total)' : scVendedorLabel(setor); }
 function crOkPill(ok, pct){
   if(pct==null) return '—';
   return ok ? pillHtml('O', 'var(--good-bg)', 'var(--good-ink)') : pillHtml('X', 'var(--critical-bg)', 'var(--critical-ink)');
