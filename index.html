@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=8">
+<link rel="stylesheet" href="assets/app.css?v=9">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -568,6 +568,32 @@
       </div>
 
       <div class="panel" style="margin-top:14px;">
+        <h3>Cobertura por vendedor</h3>
+        <div class="panel-sub">Mesma conta da aba COBERTURAS da planilha: meta, efetivo, saldo e % de cada Setor por categoria.</div>
+        <div id="table-crescer-cob-vend"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>VBC por vendedor</h3>
+        <div class="panel-sub">Mesma conta da aba VBC da planilha: meta (parte do Setor na meta da empresa), efetivo, saldo e %.</div>
+        <div id="table-crescer-vbc-vend"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Acompanhamento por cliente</h3>
+        <div class="panel-sub" id="cr-cli-sub"></div>
+        <div class="mapa-lookup cr-cli-filtros">
+          <div>
+            <span class="flabel">Mostrar</span>
+            <select id="cr-cli-filtro">
+              <option value="">Todos os clientes</option>
+              <option value="com">Só quem comprou no mês</option>
+              <option value="sem">Só quem não comprou nenhuma categoria</option>
+            </select>
+          </div>
+        </div>
+        <div id="table-crescer-cli"></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
         <h3 id="cr-cad-titulo">Metas do mês</h3>
         <div class="panel-sub">Cobertura: meta de clientes por Setor e categoria (a linha "Total da equipe" em branco soma os Setores). VBC: meta da empresa — cada Setor recebe a sua parte pelo trimestre anterior. Salvar publica para todos, só para o mês selecionado.</div>
         <form id="cr-cad-form">
@@ -613,6 +639,6 @@
 </div>
 
 
-<script src="assets/app.js?v=17" defer></script>
+<script src="assets/app.js?v=18" defer></script>
 </body>
 </html>

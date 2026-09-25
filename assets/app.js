@@ -2717,7 +2717,9 @@ const PRINT_CONFIG = {
   },
   crescer: {
     title:'Crescer + — Resumo', orientation:'landscape', kpi:'kpi-crescer', blocks:[], hideFilters:true,
-    tables:[{id:'table-crescer-cob', title:'Cobertura'}, {id:'table-crescer-vbc', title:'VBC'}],
+    tables:[{id:'table-crescer-cob', title:'Cobertura'}, {id:'table-crescer-vbc', title:'VBC'},
+      {id:'table-crescer-cob-vend', title:'Cobertura por vendedor'}, {id:'table-crescer-vbc-vend', title:'VBC por vendedor'},
+      {id:'table-crescer-cli', title:'Acompanhamento por cliente'}],
     periodLabel: () => document.getElementById('cr-info').textContent,
     headerExtra: () => {
       const setor = document.getElementById('cr-setor').value, mes = document.getElementById('cr-mes').value;
@@ -4327,6 +4329,10 @@ function initSemCompra(){
    ========================================================================= */
 
 const CR_CATEGORIAS = ['01-NP LACTEOS','02-NP CHOCOLATES','03-NP CULINARIOS','07-NP SOLUCOES'];
+// Acompanhamento por cliente (abas "Por Cliente Npro" + "Por Cliente bebidas"): todas as categorias NP.
+const CR_CATEGORIAS_CLIENTE = ['01-NP LACTEOS','02-NP CHOCOLATES','03-NP CULINARIOS','04-NP SOBREMESAS','05-NP BISCOITOS','06-NP STANDARD','07-NP SOLUCOES'];
+const CR_CAT_CURTO = {'01-NP LACTEOS':'Lácteos','02-NP CHOCOLATES':'Chocolates','03-NP CULINARIOS':'Culinários',
+  '04-NP SOBREMESAS':'Sobremesas','05-NP BISCOITOS':'Biscoitos','06-NP STANDARD':'Standard','07-NP SOLUCOES':'Soluções'};
 const CR_SETOR_TOTAL = '1';
 // Valores de setembro/2026 copiados da planilha — valem até alguém salvar o cadastro.
 const CR_SEMENTE = {
@@ -4399,18 +4405,25 @@ function crCalcular(mesKey){
   const diaAntISO = cal.diaAnteriorMs!=null ? fmtDateOnly(cal.diaAnteriorMs) : null;
   const [ano, mes] = mesKey.split('-').map(Number);
   const triIniISO = fmtDateOnly(Date.UTC(ano, mes-4, 1)), triFimISO = fmtDateOnly(Date.UTC(ano, mes-1, 0));
-  const cats = new Set(CR_CATEGORIAS);
+  const cats = new Set(CR_CATEGORIAS), catsCliente = new Set(CR_CATEGORIAS_CLIENTE);
 
   // Por Setor|Categoria: compradores no mês, 1ª compra de cada cliente no mês, VBC do mês e do trimestre.
-  const compradores = new Map(), primeira = new Map(), vbcMes = new Map(), vbcTri = new Map();
+  // Por Setor|Sold: VBC do mês em cada categoria (acompanhamento por cliente).
+  const compradores = new Map(), primeira = new Map(), vbcMes = new Map(), vbcTri = new Map(), porCliente = new Map();
   for(const r of (DATA.baseVendas||[])){
     const grp = r[5], iso = r[3];
-    if(!cats.has(grp) || !iso || r[1]==null) continue;
+    if(!catsCliente.has(grp) || !iso || r[1]==null) continue;
     const k = String(r[1]) + '|' + grp, fat = Number(r[9])||0;
+    const noMes = iso>=iniISO && iso<=ateISO, sold = String(r[0]);
+    if(noMes){
+      const kc = String(r[1]) + '|' + sold;
+      let o = porCliente.get(kc); if(!o){ o = {}; porCliente.set(kc, o); }
+      o[grp] = (o[grp]||0) + fat;
+    }
+    if(!cats.has(grp)) continue;
     if(iso>=triIniISO && iso<=triFimISO) vbcTri.set(k, (vbcTri.get(k)||0) + fat);
-    if(iso<iniISO || iso>ateISO) continue;
+    if(!noMes) continue;
     vbcMes.set(k, (vbcMes.get(k)||0) + fat);
-    const sold = String(r[0]);
     let s = compradores.get(k); if(!s){ s = new Set(); compradores.set(k, s); } s.add(sold);
     const kp = k + '|' + sold;
     if(!primeira.has(kp) || iso<primeira.get(kp)) primeira.set(kp, iso);
@@ -4454,7 +4467,7 @@ function crCalcular(mesKey){
     });
     return {cobertura, vbc};
   }
-  return {cad, origem, cal, setores, linhas, triIniISO, triFimISO};
+  return {cad, origem, cal, setores, linhas, triIniISO, triFimISO, porCliente};
 }
 
 /* ---------------------- Render ---------------------- */
@@ -4468,12 +4481,94 @@ function crOkPill(ok, pct){
 function crTabela(containerId, headers, rows, total){
   const el = document.getElementById(containerId);
   const cell = (h, r) => h.format ? h.format(r[h.key], r) : esc(r[h.key]);
-  let html = '<div class="table-wrap"><table class="datatable"><thead><tr>' +
+  let grupos = '';
+  if(headers.some(h => h.grupo)){
+    for(let i=0; i<headers.length; ){
+      let j = i; while(j<headers.length && headers[j].grupo===headers[i].grupo) j++;
+      grupos += `<th colspan="${j-i}" class="cr-grupo">${esc(headers[i].grupo||'')}</th>`;
+      i = j;
+    }
+    grupos = '<tr>' + grupos + '</tr>';
+  }
+  let html = '<div class="table-wrap"><table class="datatable"><thead>' + grupos + '<tr>' +
     headers.map(h => `<th style="text-align:${h.align||'left'}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach(r => { html += '<tr>' + headers.map(h => `<td style="text-align:${h.align||'left'}">${cell(h, r)}</td>`).join('') + '</tr>'; });
   if(total) html += '<tr class="cr-total">' + headers.map(h => `<td style="text-align:${h.align||'left'}">${total[h.key]==null ? '' : cell(h, total)}</td>`).join('') + '</tr>';
   el.innerHTML = html + '</tbody></table></div>';
-  el._printSnapshot = {headers, rows: total ? rows.concat([total]) : rows};
+  el._printSnapshot = {headers: headers.map(h => h.grupo ? Object.assign({}, h, {label: h.grupo + ' ' + h.label}) : h),
+    rows: total ? rows.concat([total]) : rows};
+}
+
+/* ---------------------- Acompanhamento por vendedor e por cliente ---------------------- */
+function crRenderPorVendedor(res){
+  const setores = res.setores.concat([CR_SETOR_TOTAL]);
+  const porSetor = setores.map(st => ({st, l: res.linhas(st)}));
+  const pctFmt = v => v==null ? '—' : fmtPct(v);
+  const saldoCls = (fmt) => (v => v==null ? '—' : (v<0 ? `<span class="cr-negativo">${fmt(v)}</span>` : fmt(v)));
+  function montar(containerId, bloco, fmt){
+    const headers = [{key:'vendedor', label:'Vendedor'}];
+    CR_CATEGORIAS.forEach((c, i) => {
+      const g = CR_CAT_CURTO[c];
+      headers.push({key:'m'+i, label:'Meta', align:'right', grupo:g, format:fmt},
+        {key:'e'+i, label:'Efet.', align:'right', grupo:g, format:fmt},
+        {key:'s'+i, label:'Saldo', align:'right', grupo:g, format:saldoCls(fmt)},
+        {key:'p'+i, label:'%', align:'right', grupo:g, format:pctFmt});
+    });
+    const linha = ({st, l}) => {
+      const o = {vendedor: crSetorLabel(st)};
+      l[bloco].forEach((x, i) => { o['m'+i] = x.meta; o['e'+i] = x.efetivo; o['s'+i] = x.saldo; o['p'+i] = x.pct; });
+      return o;
+    };
+    crTabela(containerId, headers, porSetor.filter(x => x.st!==CR_SETOR_TOTAL).map(linha), linha(porSetor.find(x => x.st===CR_SETOR_TOTAL)));
+  }
+  montar('table-crescer-cob-vend', 'cobertura', fmtInt);
+  montar('table-crescer-vbc-vend', 'vbc', fmtBRL0);
+}
+
+function crRenderPorCliente(res, setorSel){
+  const {carteira} = scDados();
+  const filtro = (document.getElementById('cr-cli-filtro')||{}).value || '';
+  const infoCarteira = new Map(carteira.map(c => [c.setor + '|' + c.sold, c]));
+  const chaves = new Set();
+  carteira.forEach(c => chaves.add(c.setor + '|' + c.sold));
+  res.porCliente.forEach((_, k) => chaves.add(k));
+  const rows = [];
+  chaves.forEach(k => {
+    const [setor, sold] = k.split('|');
+    if(setor==='506' || (setorSel!==CR_SETOR_TOTAL && setor!==setorSel)) return;
+    const cli = infoCarteira.get(k), compras = res.porCliente.get(k) || {};
+    const o = {sold, setor, vendedor: scVendedorLabel(setor),
+      razao: (cli && cli.razao) || ((clienteMetaMap && clienteMetaMap.get(sold)) || {}).razaoSocial || '—',
+      canal: (cli && cli.canal) || '—', visita: cli && cli.dia ? SC_DIAS[cli.dia] : '—', ciclo: cli ? scCicloLabel(cli.ciclo) : '—',
+      carteira: cli ? 'Sim' : 'Não', cobertas: 0, cobertasPrograma: 0, vbcTotal: 0};
+    CR_CATEGORIAS_CLIENTE.forEach((c, i) => {
+      const comprou = compras[c]!==undefined;
+      o['c'+i] = comprou ? 1 : 0; o['v'+i] = compras[c] || 0;
+      if(comprou){ o.cobertas++; if(CR_CATEGORIAS.includes(c)) o.cobertasPrograma++; }
+      o.vbcTotal += compras[c] || 0;
+    });
+    if(filtro==='sem' && o.cobertas>0) return;
+    if(filtro==='com' && o.cobertas===0) return;
+    rows.push(o);
+  });
+  const headers = [
+    {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'vendedor', label:'Vendedor'},
+    {key:'canal', label:'Canal'}, {key:'visita', label:'Dia Vst'}, {key:'ciclo', label:'Ciclo'},
+    {key:'carteira', label:'Na carteira'},
+  ];
+  CR_CATEGORIAS_CLIENTE.forEach((c, i) => {
+    headers.push({key:'c'+i, label: CR_CAT_CURTO[c], align:'center',
+      format: v => v ? pillHtml('1', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">0</span>'});
+    headers.push({key:'v'+i, label: 'VBC ' + CR_CAT_CURTO[c], align:'right', format: v => v ? fmtBRL0(v) : '—'});
+  });
+  headers.push({key:'cobertasPrograma', label:'Cat. Crescer +', align:'right', format: v => `${v} de ${CR_CATEGORIAS.length}`});
+  headers.push({key:'vbcTotal', label:'VBC total', align:'right', format: fmtBRL0});
+  makeTable('table-crescer-cli', {headers, rows, getRow: x => x, searchable: true, pageSize: 25, defaultSort: {key:'vbcTotal', dir:'desc'}});
+  const sub = document.getElementById('cr-cli-sub');
+  if(sub){
+    const naCart = rows.filter(r => r.carteira==='Sim').length;
+    sub.textContent = `Clientes da carteira (aba BASE) e quem comprou no mês com o Setor, mesmo fora da carteira — ${fmtInt(rows.length)} clientes, ${fmtInt(naCart)} na carteira. 1 = comprou a categoria no mês.`;
+  }
 }
 function crSoma(rows, key){ return rows.reduce((s, r) => s + (Number(r[key])||0), 0); }
 
@@ -4547,6 +4642,8 @@ function renderCrescer(){
   document.getElementById('cr-vbc-sub').textContent =
     `Meta do Setor = meta da empresa × participação do Setor no VBC de ${fmtDateBR(parseDateOnly(res.triIniISO))} a ${fmtDateBR(parseDateOnly(res.triFimISO))}. Tendência = efetivo ÷ dias decorridos × dias úteis.`;
 
+  crRenderPorVendedor(res);
+  crRenderPorCliente(res, setor);
   crPreencherCadastro(mesKey, res);
 }
 
@@ -4592,6 +4689,7 @@ function initCrescer(){
   document.getElementById('cr-mes').value = crMesAtualKey();
   document.getElementById('cr-mes').addEventListener('change', renderCrescer);
   document.getElementById('cr-setor').addEventListener('change', renderCrescer);
+  document.getElementById('cr-cli-filtro').addEventListener('change', renderCrescer);
   document.getElementById('cr-cad-form').addEventListener('submit', e => {
     e.preventDefault();
     if(crPublicando) return;

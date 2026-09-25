@@ -291,6 +291,10 @@ a{color:var(--accent-2);}
 .cr-print-crescer{margin-left:auto; display:inline-flex; align-items:center; background:var(--rail); border-radius:8px; padding:4px 8px;}
 .cr-print-crescer img{height:40px; width:auto; display:block;}
 .cr-info{margin:-6px 0 14px;}
+.datatable th.cr-grupo{text-align:center; border-bottom:1px solid var(--border); border-left:1px solid var(--border);}
+.cr-negativo{color:var(--good-ink); font-weight:600;}
+.cr-zero{color:var(--text-faint);}
+.cr-cli-filtros{margin:6px 0 12px;}
 .datatable tr.cr-total td{font-weight:700; border-top:2px solid var(--border-strong); background:var(--surface-2);}
 .cr-cad-table input{
   width:110px; max-width:100%; text-align:right; font-family:var(--font-body); font-size:12.5px; font-weight:600;
