@@ -4336,6 +4336,8 @@ function scCalcular(f){
     const diasSem = ultimaMs!=null ? Math.round((f.ateMs-ultimaMs)/SC_DIA_MS) : null;
     const linha = {
       sold: cli.sold, setor: cli.setor, comprou, fatMes, fatMesAnt,
+      // % de crescimento do mês sobre o mês anterior (sem base no mês anterior = sem %).
+      cresc: fatMesAnt>0 ? (fatMes - fatMesAnt)/fatMesAnt : null,
       razao: cli.razao || ((clienteMetaMap && clienteMetaMap.get(cli.sold)) || {}).razaoSocial || '—',
       vendedor: scVendedorLabel(cli.setor),
       supervisor: scSupervisorLabel(cli.supervisor),
@@ -4413,6 +4415,9 @@ function renderSemCompra(){
       {key:'ultimaMs', label:'Última Compra', format: v => fmtDateBR(v)},
       {key:'fatMesAnt', label:'Realizado Mês Anterior', align:'right', format: v => v>0 ? fmtBRL(v) : '—'},
       {key:'fatMes', label:'Realizado do Mês', align:'right', format: v => v>0 ? fmtBRL(v) : '—'},
+      {key:'cresc', label:'% Crescimento', align:'right', format: (v, r) => v==null
+        ? (r.fatMes>0 ? '<span class="sc-cresc-novo">novo</span>' : '—')
+        : `<span class="${v>=0 ? 'sc-cresc-pos' : 'sc-cresc-neg'}">${v>0 ? '+' : ''}${fmtPct(v)}</span>`},
       {key:'diasSem', label:'Dias sem Compra', align:'right', format: v => v==null ? '—' : fmtInt(v)},
       {key:'status', label:'Status', format: v => { const s = SC_STATUS_STYLE[v]; return s ? pillHtml(v, s[0], s[1]) : esc(v); }},
     ],
