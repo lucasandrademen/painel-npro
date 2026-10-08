@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=18">
+<link rel="stylesheet" href="assets/app.css?v=19">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -71,14 +71,22 @@
 
 <div class="periodbar">
   <div class="periodbar-inner">
-    <span class="flabel">Período analisado (afeta todos os KPIs, gráficos e tabelas)</span>
-    <div class="periodbar-controls">
-      <input type="date" id="period-start" aria-label="Início do período">
-      <span class="periodbar-to">até</span>
-      <input type="date" id="period-end" aria-label="Fim do período">
-      <button class="filter-reset" id="period-reset" type="button">Período padrão</button>
-      <span class="period-note" id="period-note"></span>
+    <span class="flabel" title="Afeta os KPIs, gráficos e tabelas da aba Estoque VS Vendas">Período analisado</span>
+    <div class="periodbar-presets" role="group" aria-label="Atalhos de período">
+      <button type="button" class="period-chip" data-period-preset="hoje">Hoje</button>
+      <button type="button" class="period-chip" data-period-preset="ontem">Ontem</button>
+      <button type="button" class="period-chip" data-period-preset="7d">Últimos 7 dias</button>
+      <button type="button" class="period-chip" data-period-preset="mes">Mês atual</button>
+      <button type="button" class="period-chip" data-period-preset="mesant">Mês anterior</button>
+      <button type="button" class="period-chip" data-period-preset="3m">Últimos 3 meses</button>
+      <button type="button" class="period-chip" data-period-preset="ano">Ano atual</button>
+      <button type="button" class="period-chip" data-period-preset="tudo">Tudo</button>
     </div>
+    <div class="periodbar-controls">
+      <label class="period-campo"><span>De</span><input type="date" id="period-start" aria-label="Início do período"></label>
+      <label class="period-campo"><span>Até</span><input type="date" id="period-end" aria-label="Fim do período"></label>
+    </div>
+    <span class="period-note" id="period-note" aria-live="polite"></span>
   </div>
 </div>
 
@@ -770,6 +778,6 @@
 </div>
 
 
-<script src="assets/app.js?v=38" defer></script>
+<script src="assets/app.js?v=39" defer></script>
 </body>
 </html>

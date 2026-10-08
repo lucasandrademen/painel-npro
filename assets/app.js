@@ -237,8 +237,60 @@ function initPeriodBounds(){
     elE.min = fmtDateOnly(PERIOD.minMs); elE.max = fmtDateOnly(PERIOD.maxMs);
     elS.value = fmtDateOnly(PERIOD.startMs); elE.value = fmtDateOnly(PERIOD.endMs);
   }
+  periodAtualizarResumo();
+}
+
+/* ---- Filtro de período: atalhos, resumo e validação ---- */
+const DIA_MS = 86400000;
+// "Hoje" dos atalhos = hoje, ou o último dia com dados se a planilha for mais antiga.
+function periodRefMs(){
+  const d = new Date(), hoje = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return PERIOD.maxMs!=null ? Math.min(hoje, PERIOD.maxMs) : hoje;
+}
+function periodPreset(nome){
+  const ref = periodRefMs(), r = new Date(ref);
+  const y = r.getUTCFullYear(), m = r.getUTCMonth();
+  switch(nome){
+    case 'hoje': return [ref, ref];
+    case 'ontem': { let o = ref - DIA_MS; return [o, o]; }
+    case '7d': return [ref - 6*DIA_MS, ref];
+    case 'mes': return [Date.UTC(y, m, 1), ref];
+    case 'mesant': return [Date.UTC(y, m-1, 1), Date.UTC(y, m, 0)];
+    case '3m': return [Date.UTC(y, m-2, 1), ref];
+    case 'ano': return [Date.UTC(y, 0, 1), ref];
+    case 'tudo': return [PERIOD.minMs, PERIOD.maxMs];
+  }
+  return null;
+}
+const PERIOD_PRESETS = ['hoje','ontem','7d','mes','mesant','3m','ano','tudo'];
+function periodClamp(ms){ return Math.max(PERIOD.minMs, Math.min(PERIOD.maxMs, ms)); }
+// Dias úteis no intervalo: segunda a sexta, menos feriados nacionais e de Sergipe.
+function periodDiasUteis(ini, fim){
+  const fer = new Set();
+  for(let a = new Date(ini).getUTCFullYear(); a <= new Date(fim).getUTCFullYear(); a++) crFeriadosOficiais(a).forEach(x => fer.add(x));
+  let n = 0;
+  for(let ms = ini; ms <= fim; ms += DIA_MS){ const dw = new Date(ms).getUTCDay(); if(dw!==0 && dw!==6 && !fer.has(fmtDateOnly(ms))) n++; }
+  return n;
+}
+function periodAtualizarResumo(erro){
   const note = document.getElementById('period-note');
-  if(note) note.textContent = `dados disponíveis de ${fmtDateOnly(PERIOD.minMs)} a ${fmtDateOnly(PERIOD.maxMs)}`;
+  const bar = document.querySelector('.periodbar');
+  if(bar) bar.classList.toggle('periodbar-erro', !!erro);
+  if(note){
+    if(erro) note.textContent = erro;
+    else if(PERIOD.startMs!=null && PERIOD.endMs!=null){
+      const dias = Math.round((PERIOD.endMs - PERIOD.startMs)/DIA_MS) + 1;
+      note.innerHTML = `<b>${fmtDateBR(PERIOD.startMs)} a ${fmtDateBR(PERIOD.endMs)}</b> · ${fmtInt(dias)} dia${dias===1?'':'s'} · ${fmtInt(periodDiasUteis(PERIOD.startMs, PERIOD.endMs))} úteis` +
+        `<span class="period-note-base"> · dados de ${fmtDateBR(PERIOD.minMs)} a ${fmtDateBR(PERIOD.maxMs)}</span>`;
+    }
+  }
+  // Destaca o atalho que corresponde ao período atual (se algum).
+  document.querySelectorAll('[data-period-preset]').forEach(b => {
+    const p = periodPreset(b.dataset.periodPreset);
+    const ok = !erro && p && periodClamp(p[0])===PERIOD.startMs && periodClamp(p[1])===PERIOD.endMs;
+    b.classList.toggle('active', !!ok);
+    b.setAttribute('aria-pressed', ok ? 'true' : 'false');
+  });
 }
 
 function computeAggregates(startMs, endMs){
@@ -475,19 +527,32 @@ function recomputePeriod(){
 }
 
 function initPeriodFilterUI(){
-  const elS = document.getElementById('period-start'), elE = document.getElementById('period-end'), elR = document.getElementById('period-reset');
+  const elS = document.getElementById('period-start'), elE = document.getElementById('period-end');
   if(!elS || elS.dataset.wired) return;
-  function apply(){
-    const sMs = parseDateOnly(elS.value), eMs = parseDateOnly(elE.value);
-    if(sMs==null || eMs==null || sMs>eMs) return; // aguarda os dois campos ficarem válidos
+  function aplicar(sMs, eMs){
     PERIOD.startMs = sMs; PERIOD.endMs = eMs;
+    elS.value = fmtDateOnly(sMs); elE.value = fmtDateOnly(eMs);
     recomputePeriod();
     Object.values(RENDERERS).forEach(fn => fn());
+    periodAtualizarResumo();
   }
-  elS.addEventListener('change', apply);
-  elE.addEventListener('change', apply);
-  if(elR) elR.addEventListener('click', () => { initPeriodBounds(); recomputePeriod(); Object.values(RENDERERS).forEach(fn=>fn()); });
+  function porCampos(){
+    const sMs = parseDateOnly(elS.value), eMs = parseDateOnly(elE.value);
+    if(sMs==null || eMs==null){ periodAtualizarResumo('Informe as duas datas.'); return; }
+    if(sMs>eMs){ periodAtualizarResumo('A data inicial está depois da final — ajuste o período.'); return; }
+    aplicar(periodClamp(sMs), periodClamp(eMs));
+  }
+  elS.addEventListener('change', porCampos);
+  elE.addEventListener('change', porCampos);
+  document.querySelectorAll('[data-period-preset]').forEach(b => b.addEventListener('click', () => {
+    const p = periodPreset(b.dataset.periodPreset);
+    if(!p) return;
+    let ini = periodClamp(p[0]), fim = periodClamp(p[1]);
+    if(ini>fim) ini = fim;
+    aplicar(ini, fim);
+  }));
   elS.dataset.wired = '1';
+  periodAtualizarResumo();
 }
 
 function rebuildDerived(){
