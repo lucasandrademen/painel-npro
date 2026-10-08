@@ -4298,6 +4298,8 @@ function scPeriodoPadrao(){
 function scCalcular(f){
   const {carteira, compras} = scDados();
   const compraDeMs = scInicioMesMs(f.deMs);
+  // Mês anterior ao das compras consideradas (mês cheio), para comparação.
+  const mesAntDeMs = scInicioMesMs(compraDeMs - SC_DIA_MS), mesAntAteMs = compraDeMs - SC_DIA_MS;
   const hoje = scHojeMs();
   // Dias do período que valem para a carteira (respeitando Quinzena e Dia de visita).
   const diasValidos = [];
@@ -4322,17 +4324,18 @@ function scCalcular(f){
     naCarteira.push(cli);
 
     const lista = compras.get(cli.sold + '|' + cli.setor) || [];
-    let fatMes = 0, ultimaMs = null;
+    let fatMes = 0, fatMesAnt = 0, ultimaMs = null;
     for(const [ms, fat] of lista){
       if(ms==null || ms>f.ateMs) continue;
       if(ms>=compraDeMs) fatMes += fat;
+      else if(ms>=mesAntDeMs && ms<=mesAntAteMs) fatMesAnt += fat;
       if(fat>0 && (ultimaMs==null || ms>ultimaMs)) ultimaMs = ms;
     }
     const comprou = fatMes>0;
     if(comprou) compraram++;
     const diasSem = ultimaMs!=null ? Math.round((f.ateMs-ultimaMs)/SC_DIA_MS) : null;
     const linha = {
-      sold: cli.sold, setor: cli.setor, comprou, fatMes,
+      sold: cli.sold, setor: cli.setor, comprou, fatMes, fatMesAnt,
       razao: cli.razao || ((clienteMetaMap && clienteMetaMap.get(cli.sold)) || {}).razaoSocial || '—',
       vendedor: scVendedorLabel(cli.setor),
       supervisor: scSupervisorLabel(cli.supervisor),
@@ -4403,13 +4406,12 @@ function renderSemCompra(){
       {key:'sold', label:'Sold'},
       {key:'razao', label:'Razão Social'},
       {key:'vendedor', label:'Vendedor'},
-      {key:'supervisor', label:'Supervisor'},
       {key:'canal', label:'Canal'},
       {key:'regiao', label:'Cidade/Região'},
       {key:'visita', label:'Dia de Visita'},
-      {key:'ciclo', label:'Ciclo'},
       {key:'proximaMs', label:'Próxima Visita', format: v => fmtDateBR(v)},
       {key:'ultimaMs', label:'Última Compra', format: v => fmtDateBR(v)},
+      {key:'fatMesAnt', label:'Realizado Mês Anterior', align:'right', format: v => v>0 ? fmtBRL(v) : '—'},
       {key:'fatMes', label:'Realizado do Mês', align:'right', format: v => v>0 ? fmtBRL(v) : '—'},
       {key:'diasSem', label:'Dias sem Compra', align:'right', format: v => v==null ? '—' : fmtInt(v)},
       {key:'status', label:'Status', format: v => { const s = SC_STATUS_STYLE[v]; return s ? pillHtml(v, s[0], s[1]) : esc(v); }},
