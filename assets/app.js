@@ -4409,7 +4409,6 @@ function renderSemCompra(){
       {key:'razao', label:'Razão Social'},
       {key:'vendedor', label:'Vendedor'},
       {key:'canal', label:'Canal'},
-      {key:'regiao', label:'Cidade/Região'},
       {key:'visita', label:'Dia de Visita'},
       {key:'proximaMs', label:'Próxima Visita', format: v => fmtDateBR(v)},
       {key:'ultimaMs', label:'Última Compra', format: v => fmtDateBR(v)},
