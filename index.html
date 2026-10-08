@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=20">
+<link rel="stylesheet" href="assets/app.css?v=21">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -92,14 +92,18 @@
 
 <div class="shell">
 
+  <section class="tabpanel active ev-filtros-sec" data-tab="evfiltros">
+    <div class="ev-filtros-cab">
+      <span class="ev-filtros-titulo">Filtros</span>
+      <span class="ev-filtros-nota">Valem para todas as seções abaixo — cada seção usa os campos que se aplicam a ela (ex.: DDE e Estoque Parado usam só os de produto; Cross-sell usa Prioridade).</span>
+    </div>
+    <div class="filterbar" data-fbar="estvend"></div>
+    <div class="active-chips" id="chips-evfiltros"></div>
+  </section>
+
   <section class="tabpanel active" data-tab="dashboard">
     <div class="section-title">Dashboard</div>
-    <div class="section-note">Visão geral executiva — cartões, tabela comparativa e ranking reagem aos filtros abaixo. Vendedor/Razão Social/Sold afetam Faturamento, Unidades Vendidas e os cartões de Clientes; Estoque e SKUs em Ruptura/Crítico usam sempre a base completa de produto.</div>
-    <div class="filterbar-group">
-      <div class="filterbar" data-fbar="prod"></div>
-      <div class="filterbar" data-fbar="vendcli"></div>
-    </div>
-    <div class="active-chips" id="chips-dashboard"></div>
+    <div class="section-note">Visão geral executiva — cartões, tabela comparativa e ranking reagem aos filtros do topo da aba. Vendedor/Razão Social/Sold afetam Faturamento, Unidades Vendidas e os cartões de Clientes; Estoque e SKUs em Ruptura/Crítico usam sempre a base completa de produto.</div>
     <div class="kpi-row" id="kpi-dashboard"></div>
     <div class="grid-2">
       <div class="panel">
@@ -129,8 +133,6 @@
   <section class="tabpanel" data-tab="sku">
     <div class="section-title">Estoque × Venda por SKU</div>
     <div class="section-note">NPRO + Bebidas — vendas realizadas no período. Cada card mostra o SKU líder daquele indicador. O filtro de Vendedor afeta apenas Unid. Vendidas, Cx Vendidas e Faturamento — Estoque, DDE, Giro e Status usam a base completa de vendas.</div>
-    <div class="filterbar" data-fbar="prodvend"></div>
-    <div class="active-chips" id="chips-sku"></div>
     <div class="kpi-row" id="kpi-sku"></div>
     <div class="panel">
       <h3>Todos os SKUs</h3>
@@ -141,8 +143,6 @@
   <section class="tabpanel" data-tab="dde">
     <div class="section-title">Dias de Estoque — DDE</div>
     <div class="section-note">DDE = Estoque Atual ÷ Média Diária de Vendas (vendas realizadas no período).</div>
-    <div class="filterbar" data-fbar="prod"></div>
-    <div class="active-chips" id="chips-dde"></div>
     <div class="kpi-row" id="kpi-dde"></div>
     <div class="grid-2">
       <div class="panel">
@@ -165,8 +165,6 @@
   <section class="tabpanel" data-tab="risco">
     <div class="section-title">Risco de Ruptura</div>
     <div class="section-note">Mapa de risco por SKU: Ruptura, Crítico, Atenção e Saudável. O filtro de Vendedor afeta apenas a coluna Faturamento — Estoque/DDE/Categoria de Risco usam a base completa de vendas.</div>
-    <div class="filterbar" data-fbar="prodvend"></div>
-    <div class="active-chips" id="chips-risco"></div>
     <div class="kpi-row" id="kpi-risco"></div>
     <div class="panel" style="margin-bottom:18px;">
       <div class="footnote" id="risco-methodology"></div>
@@ -180,8 +178,6 @@
   <section class="tabpanel" data-tab="parado">
     <div class="section-title">Estoque Parado — Sem Giro</div>
     <div class="section-note">SKUs com estoque atual e nenhuma venda realizada no período.</div>
-    <div class="filterbar" data-fbar="prod"></div>
-    <div class="active-chips" id="chips-parado"></div>
     <div class="kpi-row" id="kpi-parado"></div>
     <div class="panel">
       <h3>SKUs sem giro</h3>
@@ -192,8 +188,6 @@
   <section class="tabpanel" data-tab="giro">
     <div class="section-title">Índice Venda / Estoque</div>
     <div class="section-note">Antes chamado "Ranking de Giro". Índice = Unidades Vendidas (realizadas no período) ÷ Estoque Atual — não há estoque médio disponível na base, então o indicador usa o estoque atual (mesma regra do Excel). Classificação ABC por Pareto de faturamento (calculada sobre a base completa, não muda com o filtro de Vendedor). Ao selecionar um Vendedor, Unid. Vendidas, Faturamento, Participação nas Vendas e o próprio Índice passam a refletir as vendas daquele vendedor — o Estoque continua sendo o total da empresa (não é dividido por vendedor).</div>
-    <div class="filterbar" data-fbar="prodvend"></div>
-    <div class="active-chips" id="chips-giro"></div>
     <div class="grid-2b">
       <div class="panel">
         <h3>Top 10 — Maior giro</h3>
@@ -213,8 +207,6 @@
   <section class="tabpanel" data-tab="cross">
     <div class="section-title">Cross-sell NPRO × Bebidas</div>
     <div class="section-note">Oportunidades de venda cruzada entre as carteiras NPRO e Bebidas, por cliente (Razão Social), com visão por Vendedor.</div>
-    <div class="filterbar" data-fbar="cli"></div>
-    <div class="active-chips" id="chips-cross"></div>
     <div class="kpi-row" id="kpi-cross"></div>
     <div class="panel">
       <h3>Clientes</h3>
@@ -226,8 +218,6 @@
     <div class="section-title">Cobertura e Penetração por Categoria</div>
     <div class="section-note">Tudo é de <b>um mês</b> e pelo par <b>cliente (Sold) × vendedor</b>: o cliente conta para o vendedor que vendeu para ele no mês. <b>Penetração</b> = clientes que compraram a categoria ÷ clientes ativos do mês (compraram qualquer coisa, inclusive Varejo). <b>Cobertura</b> = clientes da carteira (aba BASE) que compraram a categoria ÷ carteira. Esta seção usa o mês abaixo, não o "Período analisado" do topo.</div>
     <div class="mapa-lookup"><div><span class="flabel">Mês</span><input type="month" id="cob-mes" aria-label="Mês da cobertura"></div></div>
-    <div class="filterbar" data-fbar="cli2"></div>
-    <div class="active-chips" id="chips-cobertura"></div>
     <div class="kpi-row" id="kpi-cobertura"></div>
     <div class="panel" style="margin-bottom:18px;">
       <h3>Penetração por Vendedor × Categoria</h3>
@@ -254,8 +244,6 @@
   <section class="tabpanel" data-tab="painel">
     <div class="section-title">Painel Executivo</div>
     <div class="section-note">Resumo geral — Vendas, Estoque, Ruptura, Excesso e Clientes. O filtro de Vendedor afeta Faturamento/Unid. Vendidas/Clientes Ativos/Vendas por Categoria, o Faturamento no Top 5 de Alertas e a lista de Oportunidades (só do vendedor selecionado) — Estoque, Ruptura e Excesso, incluindo quais SKUs entram no Top 5 de Alertas, usam sempre a base completa da empresa (estoque não tem "dono" por vendedor).</div>
-    <div class="filterbar" data-fbar="painelvend"></div>
-    <div class="active-chips" id="chips-painel"></div>
     <div class="kpi-row" id="kpi-painel"></div>
     <div class="grid-2">
       <div class="panel">
@@ -778,6 +766,6 @@
 </div>
 
 
-<script src="assets/app.js?v=42" defer></script>
+<script src="assets/app.js?v=43" defer></script>
 </body>
 </html>

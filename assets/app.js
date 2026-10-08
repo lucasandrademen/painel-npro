@@ -78,6 +78,7 @@ function hideTooltip(){ tooltipEl.classList.remove('show'); }
 // painel próprio, com seus filtros e impressão A4).
 const TAB_GRUPOS = { estvend: {label:"Estoque VS Vendas"} };
 const TABS = [
+  {id:"evfiltros", label:"Filtros", grupo:"estvend"}, // painel único de filtros do grupo
   {id:"dashboard", label:"Dashboard", grupo:"estvend"},
   {id:"sku", label:"Estoque × SKU", grupo:"estvend"},
   {id:"dde", label:"DDE", grupo:"estvend"},
@@ -629,7 +630,20 @@ const filterState = {
   cross:{vendedor:'(Todos)',razaosocial:'(Todos)',sold:'(Todos)',prioridade:'(Todos)'},
   cobertura:{vendedor:'(Todos)',razaosocial:'(Todos)',sold:'(Todos)'},
   painel:{vendedor:'(Todos)'},
+  // Painel único de filtros da aba Estoque VS Vendas: guarda todos os campos e
+  // copia para cada seção só os campos que ela usa (evSincronizar).
+  evfiltros:{categoria:'(Todos)',grupo:'(Todos)',familia:'(Todos)',sku:'(Todos)',vendedor:'(Todos)',razaosocial:'(Todos)',sold:'(Todos)',prioridade:'(Todos)'},
 };
+const EV_SECOES = ['dashboard','sku','dde','risco','parado','giro','cross','cobertura','painel'];
+function evSincronizar(){
+  const m = filterState.evfiltros;
+  EV_SECOES.forEach(t => Object.keys(filterState[t]).forEach(k => { filterState[t][k] = m[k]!=null ? m[k] : '(Todos)'; }));
+}
+// Renderiza uma "aba" após mudança de filtro; o painel único redesenha todas as seções do grupo.
+function renderAposFiltro(tabId){
+  if(tabId==='evfiltros'){ evSincronizar(); EV_SECOES.forEach(t => { if(RENDERERS[t]) RENDERERS[t](); }); return; }
+  if(RENDERERS[tabId]) RENDERERS[tabId]();
+}
 const RENDERERS = {}; // tabId -> render function, filled in later
 const TAB_BARS = {}; // tabId -> [{kind, barKey}, ...], filled in as bars are built
 
@@ -790,6 +804,12 @@ function fieldsForKind(kind, tabId){
     {key:'razaosocial', label:'Razão Social', opts:opt('razaosocial')},
     {key:'sold', label:'Sold', opts:opt('sold')},
   ];
+  if(kind==='estvend') return fieldsForKind('prod', tabId).concat([
+    {key:'vendedor', label:'Vendedor', opts:opt('vendedor')},
+    {key:'razaosocial', label:'Razão Social', opts:opt('razaosocial')},
+    {key:'sold', label:'Sold', opts:opt('sold')},
+    {key:'prioridade', label:'Prioridade (Cross-sell)', opts:opt('prioridade')},
+  ]);
   if(kind==='painelvend') return [
     {key:'vendedor', label:'Vendedor', opts:opt('vendedor')},
   ];
@@ -840,7 +860,7 @@ function renderFilterChips(tabId){
       state[btn.dataset.chipkey] = '(Todos)';
       bars.forEach(b => buildFilterBar(tabId, b.kind, b.barKey, b.opts));
       renderFilterChips(tabId);
-      if(RENDERERS[tabId]) RENDERERS[tabId]();
+      renderAposFiltro(tabId);
     });
   });
 }
@@ -867,7 +887,7 @@ function buildFilterBar(tabId, kind, barKey, opts){
       validateAndResetIncompatible(tabId, state, hasFields, key);
       (TAB_BARS[tabId]||[]).forEach(b => buildFilterBar(tabId, b.kind, b.barKey, b.opts));
       renderFilterChips(tabId);
-      if(RENDERERS[tabId]) RENDERERS[tabId]();
+      renderAposFiltro(tabId);
     });
   });
   const resetBtn = el.querySelector('.filter-reset');
@@ -875,7 +895,7 @@ function buildFilterBar(tabId, kind, barKey, opts){
     Object.keys(state).forEach(k => state[k]='(Todos)');
     (TAB_BARS[tabId]||[]).forEach(b => buildFilterBar(tabId, b.kind, b.barKey, b.opts));
     renderFilterChips(tabId);
-    if(RENDERERS[tabId]) RENDERERS[tabId]();
+    renderAposFiltro(tabId);
   });
   renderFilterChips(tabId);
 }
@@ -5319,17 +5339,15 @@ function initBrasileirao(){
 function init(){
   initTabs();
   initUpload();
-  buildFilterBar('dashboard','prod','prod',{showReset:false});
-  buildFilterBar('dashboard','vendcli','vendcli');
-  buildFilterBar('sku','prodvend','prodvend');
-  buildFilterBar('dde','prod','prod');
-  buildFilterBar('risco','prodvend','prodvend');
-  buildFilterBar('parado','prod','prod');
-  buildFilterBar('giro','prodvend','prodvend');
-  buildFilterBar('cross','cli','cli');
-  buildFilterBar('cobertura','cli2','cli2');
+  Object.assign(TAB_BARS, {
+    dashboard:[{kind:'prod', barKey:'prod'}, {kind:'vendcli', barKey:'vendcli'}],
+    sku:[{kind:'prodvend', barKey:'prodvend'}], dde:[{kind:'prod', barKey:'prod'}],
+    risco:[{kind:'prodvend', barKey:'prodvend'}], parado:[{kind:'prod', barKey:'prod'}],
+    giro:[{kind:'prodvend', barKey:'prodvend'}], cross:[{kind:'cli', barKey:'cli'}],
+    cobertura:[{kind:'cli2', barKey:'cli2'}], painel:[{kind:'painelvend', barKey:'painelvend'}],
+  });
+  buildFilterBar('evfiltros','estvend','estvend');
   (function(){ const m = document.getElementById('cob-mes'); if(m){ cobMesAtual(); m.addEventListener('change', renderCobertura); } })();
-  buildFilterBar('painel','painelvend','painelvend');
   initMapaVenda();
   initNrab();
   initMeta20();
