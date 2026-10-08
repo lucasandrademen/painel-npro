@@ -2822,7 +2822,7 @@ const PRINT_CONFIG = {
   },
   semcompra: {
     title:'Clientes sem Compra', orientation:'landscape', kpi:'kpi-semcompra', blocks:[], hideFilters:true,
-    tables:[{id:'table-semcompra', title:'Clientes sem compra'}, {id:'table-semcompra-vend', title:'Resumo por vendedor'}],
+    tables:[{id:'table-semcompra', title:'Clientes da carteira'}, {id:'table-semcompra-vend', title:'Resumo por vendedor'}],
     periodLabel: () => {
       const f = scLerFiltros();
       return `carteira com visita de ${fmtDateBR(f.deMs)} a ${fmtDateBR(f.ateMs)}`;
@@ -4029,6 +4029,7 @@ function initMeta20(){
 const SC_DIAS = {1:'Segunda', 2:'Terça', 3:'Quarta', 4:'Quinta', 5:'Sexta'};
 const SC_DIA_MS = 86400000;
 const SC_STATUS_STYLE = {
+  'COMPROU NO MÊS': ['var(--good-bg)','var(--good-ink)'],
   'SEM COMPRA NO MÊS': ['var(--warning-bg)','var(--warning-ink)'],
   'SEM COMPRA HÁ +90 DIAS': ['var(--critical-bg)','var(--critical-ink)'],
   'NUNCA COMPROU': ['var(--nogyro-bg)','var(--nogyro)'],
@@ -4204,6 +4205,7 @@ function scLerFiltros(){
     deMs: parseDateOnly(val('sc-de')), ateMs: parseDateOnly(val('sc-ate')),
     quinzena: val('sc-quinzena'), dia: val('sc-dia') ? Number(val('sc-dia')) : null,
     cliente: val('sc-cliente').trim().toLowerCase(),
+    situacao: val('sc-situacao'), // 'sem' | 'comprou' | '' (todos)
   };
 }
 function scPreencherSelect(id, opcoes){
@@ -4244,7 +4246,7 @@ function scCalcular(f){
     diasValidos.push(ms);
   }
 
-  const naCarteira = [], semCompra = [];
+  const naCarteira = [], semCompra = [], linhas = [];
   let compraram = 0;
   for(const cli of carteira){
     if(f.supervisor && cli.supervisor!==f.supervisor) continue;
@@ -4261,10 +4263,11 @@ function scCalcular(f){
       if(ms>=compraDeMs) fatMes += fat;
       if(fat>0 && (ultimaMs==null || ms>ultimaMs)) ultimaMs = ms;
     }
-    if(fatMes>0){ compraram++; continue; }
+    const comprou = fatMes>0;
+    if(comprou) compraram++;
     const diasSem = ultimaMs!=null ? Math.round((f.ateMs-ultimaMs)/SC_DIA_MS) : null;
-    semCompra.push({
-      sold: cli.sold, setor: cli.setor,
+    const linha = {
+      sold: cli.sold, setor: cli.setor, comprou, fatMes,
       razao: cli.razao || ((clienteMetaMap && clienteMetaMap.get(cli.sold)) || {}).razaoSocial || '—',
       vendedor: scVendedorLabel(cli.setor),
       supervisor: scSupervisorLabel(cli.supervisor),
@@ -4273,10 +4276,12 @@ function scCalcular(f){
       visita: cli.dia ? SC_DIAS[cli.dia] : '—', ciclo: scCicloLabel(cli.ciclo),
       proximaMs: scProximaVisita(cli, hoje),
       ultimaMs, diasSem,
-      status: ultimaMs==null ? 'NUNCA COMPROU' : diasSem>90 ? 'SEM COMPRA HÁ +90 DIAS' : 'SEM COMPRA NO MÊS',
-    });
+      status: comprou ? 'COMPROU NO MÊS' : ultimaMs==null ? 'NUNCA COMPROU' : diasSem>90 ? 'SEM COMPRA HÁ +90 DIAS' : 'SEM COMPRA NO MÊS',
+    };
+    linhas.push(linha);
+    if(!comprou) semCompra.push(linha);
   }
-  return {naCarteira, semCompra, compraram, compraDeMs};
+  return {naCarteira, semCompra, linhas, compraram, compraDeMs};
 }
 
 /* ---------------------- Render ---------------------- */
@@ -4323,6 +4328,11 @@ function renderSemCompra(){
     (f.quinzena ? ` (semanas ${f.quinzena==='13' ? '1 e 3' : '2 e 4'})` : '') + (f.dia ? ` · ${SC_DIAS[f.dia]}` : '') +
     ` · compras consideradas de ${fmtDateBR(r.compraDeMs)} a ${fmtDateBR(f.ateMs)}.`;
 
+  const tituloSit = {sem:'Clientes sem compra', comprou:'Clientes que já compraram'}[f.situacao] || 'Clientes da carteira';
+  const tituloEl = document.getElementById('sc-titulo');
+  if(tituloEl) tituloEl.textContent = tituloSit;
+  const linhasTabela = f.situacao==='sem' ? r.semCompra : f.situacao==='comprou' ? r.linhas.filter(x => x.comprou) : r.linhas;
+
   makeTable('table-semcompra', {
     headers: [
       {key:'sold', label:'Sold'},
@@ -4335,10 +4345,11 @@ function renderSemCompra(){
       {key:'ciclo', label:'Ciclo'},
       {key:'proximaMs', label:'Próxima Visita', format: v => fmtDateBR(v)},
       {key:'ultimaMs', label:'Última Compra', format: v => fmtDateBR(v)},
+      {key:'fatMes', label:'Realizado do Mês', align:'right', format: v => v>0 ? fmtBRL(v) : '—'},
       {key:'diasSem', label:'Dias sem Compra', align:'right', format: v => v==null ? '—' : fmtInt(v)},
       {key:'status', label:'Status', format: v => { const s = SC_STATUS_STYLE[v]; return s ? pillHtml(v, s[0], s[1]) : esc(v); }},
     ],
-    rows: r.semCompra, getRow: x => x,
+    rows: linhasTabela, getRow: x => x,
     searchable: true, pageSize: 25, defaultSort: {key:'proximaMs', dir:'asc'},
   });
 
@@ -4365,12 +4376,13 @@ function renderSemCompra(){
 function initSemCompra(){
   if(!document.getElementById('sc-filtros')) return; // aba não presente neste HTML — módulo fica inerte
   scPeriodoPadrao();
-  ['sc-supervisor','sc-vendedor','sc-de','sc-ate','sc-quinzena','sc-dia'].forEach(id => {
+  ['sc-supervisor','sc-vendedor','sc-de','sc-ate','sc-quinzena','sc-dia','sc-situacao'].forEach(id => {
     document.getElementById(id).addEventListener('change', renderSemCompra);
   });
   document.getElementById('sc-cliente').addEventListener('input', renderSemCompra);
   document.getElementById('sc-reset').addEventListener('click', () => {
     ['sc-supervisor','sc-vendedor','sc-quinzena','sc-dia','sc-cliente'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('sc-situacao').value = 'sem';
     scPeriodoPadrao();
     renderSemCompra();
   });

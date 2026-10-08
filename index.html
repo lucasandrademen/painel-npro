@@ -450,7 +450,8 @@
   <section class="tabpanel" data-tab="semcompra">
     <div class="section-title">Clientes sem Compra</div>
     <div class="section-note">
-      Clientes da carteira de cada vendedor que ainda não compraram no mês. A carteira sai da aba <b>BASE</b> da planilha
+      Clientes da carteira de cada vendedor que ainda não compraram no mês (o filtro <b>Situação</b> também mostra quem
+      já comprou, com o realizado do mês). A carteira sai da aba <b>BASE</b> da planilha
       enviada em <b>Enviar Vendas</b> e muda com o roteiro: um cliente só entra se tiver visita programada no período
       (dia de visita + quinzena do ciclo). Depois ela é cruzada, pelo Sold, com as vendas do mês — do dia 1º até a data
       final. Esta aba usa o próprio período abaixo, não o "Período analisado" do topo.
@@ -493,6 +494,14 @@
         </select>
       </div>
       <div>
+        <span class="flabel">Situação</span>
+        <select id="sc-situacao">
+          <option value="sem">Sem compra</option>
+          <option value="comprou">Já compraram</option>
+          <option value="">(Todos)</option>
+        </select>
+      </div>
+      <div>
         <span class="flabel">Cliente</span>
         <input type="text" id="sc-cliente" placeholder="Sold ou razão social" autocomplete="off">
       </div>
@@ -510,7 +519,7 @@
     <div id="sc-wrap" style="display:none;">
       <div class="kpi-row" id="kpi-semcompra"></div>
       <div class="panel">
-        <h3>Clientes sem compra</h3>
+        <h3 id="sc-titulo">Clientes sem compra</h3>
         <div class="panel-sub" id="sc-sub"></div>
         <div id="table-semcompra"></div>
       </div>
@@ -761,6 +770,6 @@
 </div>
 
 
-<script src="assets/app.js?v=37" defer></script>
+<script src="assets/app.js?v=38" defer></script>
 </body>
 </html>
