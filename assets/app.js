@@ -95,6 +95,7 @@ const TABS = [
   {id:"crescer", label:"Crescer +"},
   {id:"brasileirao", label:"Brasileirão"},
   {id:"agenda", label:"Agenda Culinaristas"},
+  {id:"canal", label:"Análise por Canal"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2906,6 +2907,19 @@ const PRINT_CONFIG = {
         + `<span class="cr-print-crescer"><img src="assets/logo-crescer-brokers.png" alt="Nestlé Crescer Brokers"></span></div>`;
     },
   },
+  canal: {
+    title:'Análise por Canal', orientation:'landscape', kpi:'kpi-ca', blocks:[], hideFilters:true,
+    tables:[{id:'table-ca-canal', title:'Análise por canal'}, {id:'table-ca-cli', title:'Visão por cliente'}],
+    periodLabel: () => document.getElementById('ca-info').textContent,
+    headerExtra: () => {
+      const f = caLerFiltros();
+      const chips = [['Visão', CA_VISOES[f.visao]], ['Mês', f.mes.slice(5,7) + '/' + f.mes.slice(0,4)], ['Objetivo de crescimento', fmtPct(f.obj)]];
+      if(f.setor) chips.push(['Setor', scVendedorLabel(f.setor)]);
+      if(f.canal) chips.push(['Canal', f.canal]);
+      if(f.tipo) chips.push(['CPF/CNPJ', f.tipo]);
+      return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
+    },
+  },
   // Imprime o que está na tela (inclusive Sold/observação editados e ainda não salvos),
   // com o título grande no meio e uma tabela por semana que nunca é cortada entre páginas.
   agenda: {
@@ -5708,6 +5722,213 @@ function initAgenda(){
   RENDERERS.agenda = renderAgenda;
 }
 
+/* ============================================================================
+   ANÁLISE POR CANAL — BRN2 (NPRO + Varejo) e BRN8 (Bebidas), por canal e por cliente
+   ============================================================================
+   Réplica da planilha "ANÁLISE POR CANAL": faturamento do mês e do ano (YTD) contra
+   o mesmo período do ano anterior, representatividade de cada canal, crescimento e
+   objetivo de crescimento. O canal é o DESC.CATEGORIA do cadastro (aba BASE), pelo
+   Sold. Mês em andamento é comparado com o ano anterior até o mesmo dia.
+   Cobertura da base = pares cliente × vendedor da carteira (do canal) que compraram
+   no mês com aquele vendedor — mesma regra das outras abas. Em BRN8 a base são os
+   clientes cuja força BEBIDAS é o vendedor; em BRN2, os demais pares. */
+const CA_SEM_CANAL = 'Sem cadastro';
+const CA_VISOES = {todos:'BRN2 + BRN8', brn2:'BRN2 (NPRO + Varejo)', brn8:'BRN8 (Bebidas)'};
+const CA_MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+function caTipo(canal){ return !canal || canal===CA_SEM_CANAL ? null : (/CPF/i.test(canal) ? 'CPF' : 'CNPJ'); }
+function caLerFiltros(){
+  const v = id => document.getElementById(id).value;
+  const obj = Number(String(v('ca-obj')).replace(',', '.'));
+  return {mes: v('ca-mes') || crMesAtualKey(), visao: v('ca-visao') || 'todos', setor: v('ca-setor'), canal: v('ca-canal'),
+    tipo: v('ca-tipo'), obj: isFinite(obj) && v('ca-obj')!=='' ? obj/100 : 0.2};
+}
+let _caMaxISO = {fonte: null, iso: null};
+function caUltimaVendaISO(){
+  const bv = DATA.baseVendas || [];
+  if(_caMaxISO.fonte!==bv){ let m = null; for(const r of bv) if(r[3] && (m==null || r[3]>m)) m = r[3]; _caMaxISO = {fonte: bv, iso: m}; }
+  return _caMaxISO.iso;
+}
+function caCalcular(f){
+  const [ano, mes] = f.mes.split('-').map(Number);
+  const fimMes = Date.UTC(ano, mes, 0), ultISO = caUltimaVendaISO();
+  const ateMs = ultISO ? Math.max(Date.UTC(ano, mes-1, 1), Math.min(fimMes, parseDateOnly(ultISO))) : fimMes;
+  const parcial = ateMs < fimMes, dia = new Date(ateMs).getUTCDate();
+  const ateAAms = Date.UTC(ano-1, mes-1, Math.min(dia, new Date(Date.UTC(ano-1, mes, 0)).getUTCDate()));
+  const iso = ms => fmtDateOnly(ms);
+  const P = {
+    mesAt: [iso(Date.UTC(ano, mes-1, 1)), iso(ateMs)], mesAA: [iso(Date.UTC(ano-1, mes-1, 1)), iso(ateAAms)],
+    ytdAt: [iso(Date.UTC(ano, 0, 1)), iso(ateMs)], ytdAA: [iso(Date.UTC(ano-1, 0, 1)), iso(ateAAms)],
+  };
+  const {carteira} = scDados();
+  const cad = new Map(); // Sold -> {razao, canal}
+  carteira.forEach(c => { if(!cad.has(c.sold)) cad.set(c.sold, {razao: c.razao, canal: c.canal || null}); else if(!cad.get(c.sold).canal && c.canal) cad.get(c.sold).canal = c.canal; });
+  const razoes = new Map((DATA.clientes||[]).map(c => [String(c[0]), c[1]]));
+  const canalDe = sold => (cad.get(sold) || {}).canal || CA_SEM_CANAL;
+  const passaCli = canal => (!f.canal || canal===f.canal) && (!f.tipo || caTipo(canal)===f.tipo);
+  const forcas = new Map(((DATA.carteira||{}).forcas||[]).map(r => [String(r[0]), {npro: r[1], beb: r[2]}]));
+  const naVisao = (sold, setor) => {
+    if(f.visao==='todos') return true;
+    const fz = forcas.get(sold), beb = !!fz && fz.beb===setor;
+    return f.visao==='brn8' ? beb : (!beb || fz.npro===setor);
+  };
+
+  const novo = () => ({mesAt:0, mesAA:0, ytdAt:0, ytdAA:0});
+  const porCanal = new Map(), porCli = new Map(), positivos = new Set(), total = novo();
+  for(const r of (DATA.baseVendas||[])){
+    const d = r[3]; if(!d || r[0]==null || r[1]==null) continue;
+    if(f.visao==='brn8' ? r[7]!=='BEBIDAS' : f.visao==='brn2' ? r[7]==='BEBIDAS' : false) continue;
+    const setor = String(r[1]); if(f.setor && setor!==f.setor) continue;
+    const sold = String(r[0]), canal = canalDe(sold); if(!passaCli(canal)) continue;
+    const fat = Number(r[9])||0;
+    let c = null, k = null;
+    for(const per of ['mesAt','mesAA','ytdAt','ytdAA']){
+      if(d < P[per][0] || d > P[per][1]) continue;
+      if(!c){
+        c = porCanal.get(canal); if(!c){ c = novo(); porCanal.set(canal, c); }
+        k = porCli.get(sold); if(!k){ k = Object.assign(novo(), {sold, canal, setores: new Set(), positivado: false}); porCli.set(sold, k); }
+        k.setores.add(setor);
+      }
+      c[per] += fat; k[per] += fat; total[per] += fat;
+      if(per==='mesAt' && fat>0) positivos.add(sold + '|' + setor);
+    }
+  }
+  // Cobertura da base: pares cliente × vendedor da carteira.
+  const base = new Map(); // canal -> {base, pos}
+  let baseTot = 0, posTot = 0;
+  carteira.forEach(c => {
+    if(f.setor && c.setor!==f.setor) return;
+    const canal = canalDe(c.sold); if(!passaCli(canal) || !naVisao(c.sold, c.setor)) return;
+    const b = base.get(canal) || {base:0, pos:0}; base.set(canal, b);
+    const pos = positivos.has(c.sold + '|' + c.setor);
+    b.base++; baseTot++; if(pos){ b.pos++; posTot++; }
+    let k = porCli.get(c.sold);
+    if(!k){ k = Object.assign(novo(), {sold: c.sold, canal, setores: new Set(), positivado: false}); porCli.set(c.sold, k); }
+    k.setores.add(c.setor); k.naBase = true; if(pos) k.positivado = true;
+  });
+  porCli.forEach(k => { if(!k.naBase && k.mesAt>0) k.positivado = true; k.razao = (cad.get(k.sold)||{}).razao || razoes.get(k.sold) || ''; });
+
+  const canais = new Set([...porCanal.keys(), ...base.keys()]);
+  const linhas = [...canais].map(canal => Object.assign({canal}, porCanal.get(canal) || novo(),
+    {base: (base.get(canal)||{}).base || 0, pos: (base.get(canal)||{}).pos || 0}));
+  return {P, parcial, ano, mes, linhas, total, baseTot, posTot, clientes: [...porCli.values()]};
+}
+function caCresc(at, aa){ return aa>0 ? at/aa - 1 : null; }
+function caFmtCresc(v){
+  if(v==null) return '—';
+  const t = (v>0 ? '+' : '') + fmtPct(v);
+  return `<span class="${v<0 ? 'ca-neg' : 'ca-pos'}">${t}</span>`;
+}
+function caFmtCob(v){ return v==null ? '—' : `<span class="${v>=0.8 ? 'ca-pos' : v<0.5 ? 'ca-neg' : ''}">${fmtPct(v)}</span>`; }
+
+function renderCanal(){
+  const wrap = document.getElementById('ca-wrap');
+  if(!wrap) return;
+  const hint = document.getElementById('ca-hint');
+  if(!(DATA.baseVendas||[]).length){ wrap.style.display = 'none'; hint.style.display = ''; hint.textContent = 'Envie a planilha de Vendas para ver a análise por canal.'; return; }
+  wrap.style.display = ''; hint.style.display = 'none';
+  // Opções de Setor e Canal (preserva a escolha atual).
+  const opc = (id, lista, rotulo) => {
+    const el = document.getElementById(id), atual = el.value;
+    el.innerHTML = '<option value="">(Todos)</option>' + lista.map(v => `<option value="${esc(v)}">${esc(rotulo ? rotulo(v) : v)}</option>`).join('');
+    el.value = lista.includes(atual) ? atual : '';
+  };
+  opc('ca-setor', crSetores(), scVendedorLabel);
+  const canaisCad = [...new Set(scDados().carteira.map(c => c.canal).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  opc('ca-canal', canaisCad.concat([CA_SEM_CANAL]));
+
+  const f = caLerFiltros(), res = caCalcular(f), t = res.total;
+  const mAt = CA_MESES[res.mes-1] + '/' + res.ano, mAA = CA_MESES[res.mes-1] + '/' + (res.ano-1);
+  const yAt = 'YTD ' + res.ano, yAA = 'YTD ' + (res.ano-1);
+  const objLbl = 'Obj. cresc. (' + fmtPct(f.obj).replace(',0%', '%') + ')';
+  document.getElementById('ca-info').textContent =
+    `${CA_VISOES[f.visao]} · mês: ${fmtDateBR(parseDateOnly(res.P.mesAt[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAt[1]))}` +
+    ` × ${fmtDateBR(parseDateOnly(res.P.mesAA[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAA[1]))}` +
+    ` · YTD até ${fmtDateBR(parseDateOnly(res.P.ytdAt[1]))} × até ${fmtDateBR(parseDateOnly(res.P.ytdAA[1]))}` +
+    (res.parcial ? ' · mês em andamento: o ano anterior vai até o mesmo dia' : '');
+
+  const objTot = t.ytdAA * (1 + f.obj);
+  renderKPIs('kpi-ca', [
+    {label: 'Faturamento ' + mAt, value: fmtBRL0(t.mesAt), note: mAA + ': ' + fmtBRL0(t.mesAA) + ' · ' + (caCresc(t.mesAt, t.mesAA)==null ? '—' : (caCresc(t.mesAt, t.mesAA)>0?'+':'') + fmtPct(caCresc(t.mesAt, t.mesAA))),
+      tone: caCresc(t.mesAt, t.mesAA)==null ? '' : caCresc(t.mesAt, t.mesAA)<0 ? 'critical' : 'good'},
+    {label: 'Faturamento ' + yAt, value: fmtBRL0(t.ytdAt), note: yAA + ': ' + fmtBRL0(t.ytdAA) + ' · ' + (caCresc(t.ytdAt, t.ytdAA)==null ? '—' : (caCresc(t.ytdAt, t.ytdAA)>0?'+':'') + fmtPct(caCresc(t.ytdAt, t.ytdAA))),
+      tone: caCresc(t.ytdAt, t.ytdAA)==null ? '' : caCresc(t.ytdAt, t.ytdAA)<0 ? 'critical' : 'good'},
+    {label: objLbl + ' YTD', value: fmtBRL0(objTot), note: objTot>0 ? fmtPct(t.ytdAt/objTot) + ' atingido · falta ' + fmtBRL0(Math.max(0, objTot - t.ytdAt)) : '—',
+      tone: objTot>0 && t.ytdAt>=objTot ? 'good' : ''},
+    {label: 'Cobertura da base', value: res.baseTot ? fmtPct(res.posTot/res.baseTot) : '—', note: fmtInt(res.posTot) + ' de ' + fmtInt(res.baseTot) + ' clientes × vendedor positivados em ' + mAt},
+  ]);
+
+  const rep = (v, tot) => tot>0 ? v/tot : null;
+  const linhas = res.linhas.map(l => Object.assign(l, {
+    repMesAA: rep(l.mesAA, t.mesAA), repMesAt: rep(l.mesAt, t.mesAt), crescMes: caCresc(l.mesAt, l.mesAA),
+    repYtdAA: rep(l.ytdAA, t.ytdAA), repYtdAt: rep(l.ytdAt, t.ytdAt), crescYtd: caCresc(l.ytdAt, l.ytdAA),
+    obj: l.ytdAA * (1 + f.obj), ating: l.ytdAA>0 ? l.ytdAt/(l.ytdAA*(1+f.obj)) : null, cob: l.base ? l.pos/l.base : null,
+  })).sort((a, b) => b.ytdAt - a.ytdAt || b.base - a.base);
+  const totalRow = {canal: 'Total', mesAA: t.mesAA, repMesAA: t.mesAA ? 1 : null, mesAt: t.mesAt, repMesAt: t.mesAt ? 1 : null,
+    crescMes: caCresc(t.mesAt, t.mesAA), ytdAA: t.ytdAA, repYtdAA: t.ytdAA ? 1 : null, ytdAt: t.ytdAt, repYtdAt: t.ytdAt ? 1 : null,
+    crescYtd: caCresc(t.ytdAt, t.ytdAA), obj: objTot, ating: objTot>0 ? t.ytdAt/objTot : null,
+    base: res.baseTot, pos: res.posTot, cob: res.baseTot ? res.posTot/res.baseTot : null};
+  const brl = v => fmtBRL0(v), pct = v => v==null ? '—' : fmtPct(v);
+  crTabela('table-ca-canal', [
+    {key:'canal', label:'Canal', format: v => `<b>${esc(v)}</b>`},
+    {key:'mesAA', label:'R$', align:'right', grupo: mAA, format: brl}, {key:'repMesAA', label:'Rep %', align:'right', grupo: mAA, format: pct},
+    {key:'mesAt', label:'R$', align:'right', grupo: mAt, cls:'ca-col-at', format: brl}, {key:'repMesAt', label:'Rep %', align:'right', grupo: mAt, cls:'ca-col-at', format: pct},
+    {key:'crescMes', label:'Cresc./Qued. mês', align:'right', grupo:'Mês', format: caFmtCresc},
+    {key:'ytdAA', label:'R$', align:'right', grupo: yAA, format: brl}, {key:'repYtdAA', label:'Rep %', align:'right', grupo: yAA, format: pct},
+    {key:'ytdAt', label:'R$', align:'right', grupo: yAt, cls:'ca-col-at', format: brl}, {key:'repYtdAt', label:'Rep %', align:'right', grupo: yAt, cls:'ca-col-at', format: pct},
+    {key:'crescYtd', label:'Cresc./Qued. YTD', align:'right', grupo:'YTD', format: caFmtCresc},
+    {key:'obj', label:'R$', align:'right', grupo: objLbl, cls:'ca-col-obj', format: brl}, {key:'ating', label:'% ating.', align:'right', grupo: objLbl, cls:'ca-col-obj', format: v => v==null ? '—' : `<span class="${v>=1 ? 'ca-pos' : 'ca-neg'}">${fmtPct(v)}</span>`},
+    {key:'base', label:'Base', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: fmtInt},
+    {key:'pos', label:'Positivados', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: fmtInt},
+    {key:'cob', label:'Cobertura', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: caFmtCob},
+  ], linhas, totalRow);
+
+  // Visão por cliente
+  const cliF = document.getElementById('ca-cli-situacao').value;
+  const clientes = res.clientes.filter(k => !cliF || (cliF==='pos' ? k.positivado : cliF==='nao' ? (k.naBase && !k.positivado) : cliF==='queda' ? k.ytdAt < k.ytdAA : true))
+    .filter(k => k.mesAt || k.mesAA || k.ytdAt || k.ytdAA || k.naBase);
+  document.getElementById('ca-cli-sub').textContent =
+    `${fmtInt(clientes.length)} cliente${clientes.length===1?'':'s'} — os da carteira aparecem mesmo sem compra; "Positivado" = comprou em ${mAt} com o vendedor da carteira.`;
+  makeTable('table-ca-cli', {
+    headers: [
+      {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'canal', label:'Canal'}, {key:'tipo', label:'CPF/CNPJ'},
+      {key:'setores', label:'Setor'},
+      {key:'mesAA', label: mAA, align:'right', format: brl}, {key:'mesAt', label: mAt, align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescMes', label:'Cresc. mês', align:'right', format: caFmtCresc},
+      {key:'ytdAA', label: yAA, align:'right', format: brl}, {key:'ytdAt', label: yAt, align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescYtd', label:'Cresc. YTD', align:'right', format: caFmtCresc},
+      {key:'obj', label: objLbl, align:'right', cls:'ca-col-obj', format: brl},
+      {key:'positivado', label:'Positivado', format: v => v==null ? '—' : v==='Sim' ? pillHtml('Sim', 'var(--good-bg)', 'var(--good-ink)') : pillHtml('Não', 'var(--critical-bg)', 'var(--critical-ink)')},
+    ],
+    rows: clientes,
+    getRow: k => ({sold: k.sold, razao: k.razao, canal: k.canal, tipo: caTipo(k.canal) || '—', setores: [...k.setores].sort().join(', '),
+      mesAA: k.mesAA, mesAt: k.mesAt, crescMes: caCresc(k.mesAt, k.mesAA), ytdAA: k.ytdAA, ytdAt: k.ytdAt,
+      crescYtd: caCresc(k.ytdAt, k.ytdAA), obj: k.ytdAA * (1 + f.obj), positivado: k.positivado ? 'Sim' : (k.naBase ? 'Não' : null)}),
+    defaultSort: {key:'ytdAt', dir:'desc'}, pageSize: 20,
+  });
+}
+function initCanal(){
+  if(!document.getElementById('ca-wrap')) return;
+  document.getElementById('ca-mes').value = crMesAtualKey();
+  ['ca-mes','ca-visao','ca-setor','ca-canal','ca-tipo','ca-obj','ca-cli-situacao'].forEach(id => document.getElementById(id).addEventListener('change', renderCanal));
+  document.querySelectorAll('[data-ca-visao]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById('ca-visao').value = b.dataset.caVisao;
+    caMarcarVisao(); renderCanal();
+  }));
+  document.getElementById('ca-visao').addEventListener('change', caMarcarVisao);
+  document.getElementById('ca-reset').addEventListener('click', () => {
+    document.getElementById('ca-mes').value = crMesAtualKey();
+    ['ca-setor','ca-canal','ca-tipo','ca-cli-situacao'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('ca-visao').value = 'todos'; document.getElementById('ca-obj').value = '20';
+    caMarcarVisao(); renderCanal();
+  });
+  caMarcarVisao();
+  RENDERERS.canal = renderCanal;
+}
+function caMarcarVisao(){
+  const v = document.getElementById('ca-visao').value;
+  document.querySelectorAll('[data-ca-visao]').forEach(b => { const on = b.dataset.caVisao===v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -5727,6 +5948,7 @@ function init(){
   initCrescer();
   initBrasileirao();
   initAgenda();
+  initCanal();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

@@ -840,3 +840,19 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 .ag-print-semana .print-table th:nth-child(7){width:11%;} .ag-print-semana .print-table th:nth-child(8){width:9%;}
 .ag-print-semana .print-table th:nth-child(9){width:9%;}  .ag-print-semana .print-table th:nth-child(10){width:9%;}
 .ag-print-semana .print-table td:nth-child(n+8){white-space:nowrap;}
+
+/* Análise por Canal */
+.ca-visoes{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
+.ca-visao-btn{font-family:var(--font-body); font-size:12.5px; font-weight:700; color:var(--accent-ink); background:var(--surface);
+  border:1px solid var(--border-strong); border-radius:999px; padding:7px 16px; cursor:pointer;}
+.ca-visao-btn:hover{border-color:var(--accent-2); background:var(--surface-2);}
+.ca-visao-btn.active{background:var(--accent); border-color:var(--accent); color:#fff;}
+#ca-filtros input[type="month"], #ca-filtros input[type="number"]{
+  font-family:var(--font-body); font-size:12.5px; color:var(--text); background:var(--surface);
+  border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:7px 9px; width:100%; box-sizing:border-box;}
+.ca-neg{color:var(--critical-ink); font-weight:700;}
+.ca-pos{color:var(--good-ink); font-weight:700;}
+#table-ca-canal .ca-col-at{background:color-mix(in srgb, var(--accent) 7%, transparent);}
+#table-ca-canal .ca-col-obj{background:color-mix(in srgb, #E0A100 10%, transparent);}
+#table-ca-canal .ca-col-cob{background:color-mix(in srgb, var(--good-ink) 8%, transparent);}
+#table-ca-canal td, #table-ca-canal th{white-space:nowrap;}

@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=26">
+<link rel="stylesheet" href="assets/app.css?v=27">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -790,6 +790,86 @@
     <datalist id="ag-sold-list"></datalist>
   </section>
 
+  <section class="tabpanel" data-tab="canal">
+    <div class="section-title">Análise por Canal</div>
+    <div class="section-note">
+      Faturamento por canal (DESC.CATEGORIA do cadastro da aba <b>BASE</b>) no mês e no acumulado do ano (YTD), contra o mesmo
+      período do ano anterior. <b>BRN2</b> = NPRO + Varejo; <b>BRN8</b> = Bebidas. Mês em andamento é comparado com o ano
+      anterior até o mesmo dia. CPF/CNPJ vem do canal (canais "CPF" e "CPF - Balcão" = CPF). A cobertura da base conta os
+      pares cliente × vendedor da carteira que compraram no mês com aquele vendedor. Cliente sem cadastro na BASE aparece
+      como "Sem cadastro". Esta aba usa os próprios filtros abaixo, não o "Período analisado" do topo.
+    </div>
+
+    <div class="ca-visoes" role="group" aria-label="Visão">
+      <button type="button" class="ca-visao-btn" data-ca-visao="todos">BRN2 + BRN8</button>
+      <button type="button" class="ca-visao-btn" data-ca-visao="brn2">BRN2 · NPRO + Varejo</button>
+      <button type="button" class="ca-visao-btn" data-ca-visao="brn8">BRN8 · Bebidas</button>
+    </div>
+    <div class="filterbar" id="ca-filtros">
+      <div>
+        <span class="flabel">Mês</span>
+        <input type="month" id="ca-mes" aria-label="Mês de referência">
+      </div>
+      <div>
+        <span class="flabel">Visão</span>
+        <select id="ca-visao">
+          <option value="todos">BRN2 + BRN8</option>
+          <option value="brn2">BRN2 (NPRO + Varejo)</option>
+          <option value="brn8">BRN8 (Bebidas)</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="ca-setor"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">Canal</span>
+        <select id="ca-canal"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">CPF/CNPJ</span>
+        <select id="ca-tipo">
+          <option value="">(Todos)</option>
+          <option value="CPF">CPF</option>
+          <option value="CNPJ">CNPJ</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Objetivo de crescimento (%)</span>
+        <input type="number" id="ca-obj" value="20" step="1" min="0" aria-label="Objetivo de crescimento em %">
+      </div>
+      <button class="filter-reset" id="ca-reset" type="button">Limpar filtros</button>
+    </div>
+
+    <div id="ca-hint" class="mapa-empty-hint" style="display:none;"></div>
+    <div id="ca-wrap">
+      <div class="kpi-row" id="kpi-ca"></div>
+      <div class="panel-sub cr-info" id="ca-info"></div>
+      <div class="panel">
+        <h3>Análise por canal</h3>
+        <div class="panel-sub">Rep % = participação do canal no total da coluna. Cresc./Qued. = atual ÷ ano anterior − 1 (queda em vermelho).
+          Objetivo = YTD do ano anterior + o % de crescimento informado nos filtros.</div>
+        <div id="table-ca-canal"></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Visão por cliente</h3>
+        <div class="panel-sub" id="ca-cli-sub"></div>
+        <div class="mapa-lookup cr-cli-filtros">
+          <div>
+            <span class="flabel">Mostrar</span>
+            <select id="ca-cli-situacao">
+              <option value="">Todos os clientes</option>
+              <option value="pos">Positivados no mês</option>
+              <option value="nao">Da carteira sem compra no mês</option>
+              <option value="queda">Em queda no YTD</option>
+            </select>
+          </div>
+        </div>
+        <div id="table-ca-cli"></div>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -819,6 +899,6 @@
 </div>
 
 
-<script src="assets/app.js?v=53" defer></script>
+<script src="assets/app.js?v=54" defer></script>
 </body>
 </html>
