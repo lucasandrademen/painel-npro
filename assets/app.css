@@ -804,3 +804,39 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 .senha-btn-primario:hover{ background:var(--accent-ink); }
 .senha-btn-secundario{ background:var(--surface-2); color:var(--text-muted); }
 .senha-btn-secundario:hover{ background:var(--surface-3); color:var(--text); }
+
+/* ============================== AGENDA CULINARISTAS ============================== */
+.ag-acoes{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:2px 0 12px;}
+.ag-status{font-size:12.5px; color:var(--text-muted);}
+.ag-status.is-dirty{color:var(--warning-ink); font-weight:600;}
+.ag-table{width:100%; border-collapse:collapse; font-size:13px;}
+.ag-table td, .ag-table th{padding:5px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:middle;}
+.ag-head th{background:var(--accent); color:#fff; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;}
+.ag-head th.ag-num, .ag-table td.ag-num{text-align:right; white-space:nowrap;}
+.ag-in{width:100%; min-width:0; font-family:var(--font-body); font-size:13px; color:var(--text); background:var(--surface);
+  border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:4px 7px;}
+.ag-in.ag-sold{width:104px; font-weight:600;}
+.ag-in.ag-obs{min-width:150px;}
+.ag-nao-achou{color:var(--critical-ink); font-weight:600;}
+.ag-btn{font-family:var(--font-body); font-size:13px; font-weight:700; line-height:1; color:var(--accent); background:var(--surface);
+  border:1px solid var(--border-strong); border-radius:6px; width:24px; height:24px; cursor:pointer; margin-left:3px;}
+.ag-btn:hover{background:var(--surface-2);}
+.ag-table td[data-c="razao"]{min-width:200px;}
+.ag-table td[data-c="cidade"]{min-width:140px;}
+/* Impressão da agenda: título no meio, uma tabela por semana que não é cortada entre páginas,
+   letra compacta para o mês inteiro caber em 2 folhas A4 paisagem */
+.ag-print-titulo{text-align:center; font-size:17px; font-weight:800; letter-spacing:.02em; color:var(--critical-ink);
+  background:var(--surface-2); border-radius:6px; padding:6px 8px; margin:2px 0 8px;}
+.ag-print-semana{break-inside:avoid; page-break-inside:avoid; margin-bottom:6px;}
+.ag-print-semana .print-table-block{margin-bottom:0;}
+.ag-print-semana .print-table-block h4{font-size:9.5px; margin:0 0 2px;}
+.ag-print-semana .print-table{table-layout:fixed; font-size:8.5px;}
+.ag-print-semana .print-table th{font-size:7.5px; padding:2px 5px;}
+.ag-print-semana .print-table td{padding:2px 5px; line-height:1.2;}
+.ag-print-semana .print-table .pill{font-size:7.5px; padding:1px 5px; white-space:nowrap;}
+.ag-print-semana .print-table th:nth-child(1){width:8%;}  .ag-print-semana .print-table th:nth-child(2){width:7%;}
+.ag-print-semana .print-table th:nth-child(3){width:7%;}  .ag-print-semana .print-table th:nth-child(4){width:19%;}
+.ag-print-semana .print-table th:nth-child(5){width:11%;} .ag-print-semana .print-table th:nth-child(6){width:10%;}
+.ag-print-semana .print-table th:nth-child(7){width:11%;} .ag-print-semana .print-table th:nth-child(8){width:9%;}
+.ag-print-semana .print-table th:nth-child(9){width:9%;}  .ag-print-semana .print-table th:nth-child(10){width:9%;}
+.ag-print-semana .print-table td:nth-child(n+8){white-space:nowrap;}

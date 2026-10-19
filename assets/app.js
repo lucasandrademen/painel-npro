@@ -94,6 +94,7 @@ const TABS = [
   {id:"semcompra", label:"Clientes sem Compra"},
   {id:"crescer", label:"Crescer +"},
   {id:"brasileirao", label:"Brasileirão"},
+  {id:"agenda", label:"Agenda Culinaristas"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2905,6 +2906,19 @@ const PRINT_CONFIG = {
         + `<span class="cr-print-crescer"><img src="assets/logo-crescer-brokers.png" alt="Nestlé Crescer Brokers"></span></div>`;
     },
   },
+  // Imprime o que está na tela (inclusive Sold/observação editados e ainda não salvos),
+  // com o título grande no meio e uma tabela por semana que nunca é cortada entre páginas.
+  agenda: {
+    title:'Agenda Culinaristas', orientation:'landscape', kpi:null, blocks:[], tables:[], hideFilters:true,
+    bodyHtml: () => agPrintHtml(),
+    fileName: () => agTituloAgenda(agMesSelecionado(), agNomeSelecionado()),
+    periodLabel: () => agPeriodoLabel(),
+    headerExtra: () => {
+      const nome = agNomeSelecionado();
+      return nome ? `<div class="print-filters-row"><span class="print-filter-chip"><b>Culinarista:</b> ${esc(nome)}</span></div>` : '';
+    },
+    guard: () => agNomeSelecionado() ? null : 'Selecione uma culinarista antes de imprimir.',
+  },
   semcompra: {
     title:'Clientes sem Compra', orientation:'landscape', kpi:'kpi-semcompra', blocks:[], hideFilters:true,
     tables:[{id:'table-semcompra', title:'Clientes da carteira'}, {id:'table-semcompra-vend', title:'Resumo por vendedor'}],
@@ -3009,6 +3023,7 @@ function buildPrintReportHtml(tabId){
   if(impedimento){
     return html + `<div class="print-empty-note">${esc(impedimento)}</div>`;
   }
+  if(cfg.bodyHtml) html += cfg.bodyHtml(); // conteúdo próprio da aba (ex.: agenda dividida por semana)
 
   if(cfg.kpi){
     const kpiEl = document.getElementById(cfg.kpi);
@@ -3077,7 +3092,8 @@ function printA4Report(){
   const sameDay = fmtDateOnly(PERIOD.startMs)===fmtDateOnly(PERIOD.endMs);
   const dateSuffix = sameDay ? slugifyFileDate(PERIOD.endMs) : `${slugifyFileDate(PERIOD.startMs)}_a_${slugifyFileDate(PERIOD.endMs)}`;
   const originalTitle = document.title;
-  document.title = `${baseName}_${dateSuffix}`;
+  // O nome do PDF salvo vem do título da página no momento da impressão.
+  document.title = cfg && cfg.fileName ? cfg.fileName().replace(/[\\/:*?"<>|]/g,'').trim() : `${baseName}_${dateSuffix}`;
   window.print();
   document.title = originalTitle;
 }
@@ -4517,8 +4533,19 @@ function crCatTag(cat){ return CR_CAT_COR[cat] ? `<span class="cr-cat-tag ${CR_C
 const CR_CAT_CURTO = {'01-NP LACTEOS':'Lácteos','02-NP CHOCOLATES':'Chocolates','03-NP CULINARIOS':'Culinários',
   '04-NP SOBREMESAS':'Sobremesas','05-NP BISCOITOS':'Biscoitos','06-NP STANDARD':'Standard','07-NP SOLUCOES':'Soluções'};
 const CR_SETOR_TOTAL = '1';
-// Valores de setembro/2026 copiados da planilha — valem até alguém salvar o cadastro.
+// Valores de cada mês copiados da planilha — valem até alguém salvar o cadastro do mês.
 const CR_SEMENTE = {
+  '2026-10': {
+    cobertura: {
+      '502': {'01-NP LACTEOS':108, '02-NP CHOCOLATES':50, '03-NP CULINARIOS':46, '07-NP SOLUCOES':0},
+      '504': {'01-NP LACTEOS':95, '02-NP CHOCOLATES':52, '03-NP CULINARIOS':46, '07-NP SOLUCOES':0},
+      '505': {'01-NP LACTEOS':47, '02-NP CHOCOLATES':33, '03-NP CULINARIOS':46, '07-NP SOLUCOES':10},
+      '510': {'01-NP LACTEOS':10, '02-NP CHOCOLATES':9, '03-NP CULINARIOS':3, '07-NP SOLUCOES':60},
+      '555': {'01-NP LACTEOS':7, '02-NP CHOCOLATES':4, '03-NP CULINARIOS':2, '07-NP SOLUCOES':0},
+      '1':   {'01-NP LACTEOS':267, '02-NP CHOCOLATES':148, '03-NP CULINARIOS':143, '07-NP SOLUCOES':70},
+    },
+    vbc: {'01-NP LACTEOS':1495395.72, '02-NP CHOCOLATES':228648.41, '03-NP CULINARIOS':74658.29, '07-NP SOLUCOES':185348.47},
+  },
   '2026-09': {
     cobertura: {
       '502': {'01-NP LACTEOS':93, '02-NP CHOCOLATES':48, '03-NP CULINARIOS':46, '07-NP SOLUCOES':0},
@@ -4673,10 +4700,11 @@ function crTabela(containerId, headers, rows, total){
   let html = '<div class="table-wrap"><table class="datatable"><thead>' + grupos + '<tr>' +
     headers.map(h => `<th class="${h.cls||''}" style="text-align:${h.align||'left'}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach(r => { html += '<tr>' + headers.map(h => `<td class="${h.cls||''}" style="text-align:${h.align||'left'}">${cell(h, r)}</td>`).join('') + '</tr>'; });
-  if(total) html += '<tr class="cr-total">' + headers.map(h => `<td class="${h.cls||''}" style="text-align:${h.align||'left'}">${total[h.key]==null ? '' : cell(h, total)}</td>`).join('') + '</tr>';
+  const totais = !total ? [] : Array.isArray(total) ? total : [total]; // uma ou mais linhas de total
+  totais.forEach(t => { html += '<tr class="cr-total">' + headers.map(h => `<td class="${h.cls||''}" style="text-align:${h.align||'left'}">${t[h.key]==null ? '' : cell(h, t)}</td>`).join('') + '</tr>'; });
   el.innerHTML = html + '</tbody></table></div>';
   el._printSnapshot = {headers: headers.map(h => h.grupo ? Object.assign({}, h, {label: h.grupo + ' ' + h.label}) : h),
-    rows: total ? rows.concat([total]) : rows};
+    rows: rows.concat(totais)};
 }
 
 /* ---------------------- Acompanhamento por vendedor e por cliente ---------------------- */
@@ -4930,11 +4958,13 @@ function initCrescer(){
    Metas do mês são um cadastro publicado para todos (DATA.brasileirao).
    ========================================================================= */
 
-// 02I-COMPOUND 500G - 1KG e 02J-COMPOUND 2KG ficam de fora por decisão do usuário
-// (a Nestlé não pontua essas duas — meta "-" no relatório dela).
+// 02I-COMPOUND 500G - 1KG e 02J-COMPOUND 2KG entram a partir de outubro/2026 (a Nestlé
+// passou a dar meta e pontuação para elas). Em meses cadastrados antes disso elas
+// ficam sem meta (0), então não pontuam.
 const BR_SUBCATS = ['01B-TOP LACTEOS LATA E BAG','01D-CONDENSADOS INTEGRAL BAG','01F-CONDENSADOS SEMI-DESNATADO BAG',
   '02A-COBERTURA REGULAR NESTLE 500G - 1KG','02B-COBERTURA REGULAR NESTLE 2KG','02E-PASTAS',
-  '02F-COBERTURA REGULAR GAROTO 2KG','02G-COBERTURA REGULAR GAROTO 500G - 1KG','03A-MAGGI CALDOS',
+  '02F-COBERTURA REGULAR GAROTO 2KG','02G-COBERTURA REGULAR GAROTO 500G - 1KG',
+  '02I-COMPOUND 500G - 1KG','02J-COMPOUND 2KG','03A-MAGGI CALDOS',
   '03B-MAGGI TEMPEROS','06A-INGREDIENTE ACHOCOLATADO','07A-CAFE GRAO NESCAFE','07B-CAFE MOIDO NESCAFE',
   '07F-ACHOCOLATADO KIT KAT','07H-CAPPUCCINO NESCAFE'];
 const BR_POR_SETOR = sub => sub.startsWith('07'); // Bebidas: meta digitada por Setor
@@ -4943,8 +4973,29 @@ const brCor = sub => BR_COR_PREFIXO[sub.slice(0,2)] || '';
 const brCurto = sub => sub.slice(0,3);
 const BR_MULT = 1.15;
 const BR_TOTAL = '1';
-// Metas de setembro/2026 copiadas da planilha — valem até alguém salvar o cadastro.
+// Metas copiadas da planilha de cada mês — valem até alguém salvar o cadastro do mês.
 const BR_SEMENTE = {
+  '2026-10': {
+    peso: 1, // ranking parcial da Nestlé: MB com peso 1,00
+    cobEmpresa: {'07A-CAFE GRAO NESCAFE':52,'07B-CAFE MOIDO NESCAFE':15,'07F-ACHOCOLATADO KIT KAT':19,'07H-CAPPUCCINO NESCAFE':54,
+      '01B-TOP LACTEOS LATA E BAG':187,'01D-CONDENSADOS INTEGRAL BAG':20,'01F-CONDENSADOS SEMI-DESNATADO BAG':7,
+      '02A-COBERTURA REGULAR NESTLE 500G - 1KG':25,'02B-COBERTURA REGULAR NESTLE 2KG':23,'02E-PASTAS':14,
+      '02F-COBERTURA REGULAR GAROTO 2KG':3,'02G-COBERTURA REGULAR GAROTO 500G - 1KG':3,'02I-COMPOUND 500G - 1KG':1,
+      '02J-COMPOUND 2KG':1,'03A-MAGGI CALDOS':105,'03B-MAGGI TEMPEROS':53,'06A-INGREDIENTE ACHOCOLATADO':38},
+    cobSetor: {
+      '505': {'07A-CAFE GRAO NESCAFE':22,'07B-CAFE MOIDO NESCAFE':1,'07F-ACHOCOLATADO KIT KAT':1,'07H-CAPPUCCINO NESCAFE':8},
+      '510': {'07A-CAFE GRAO NESCAFE':22,'07B-CAFE MOIDO NESCAFE':6,'07F-ACHOCOLATADO KIT KAT':6,'07H-CAPPUCCINO NESCAFE':37},
+    },
+    vbcEmpresa: {'07A-CAFE GRAO NESCAFE':51862.02,'07B-CAFE MOIDO NESCAFE':27125.70,'07F-ACHOCOLATADO KIT KAT':11104.13,'07H-CAPPUCCINO NESCAFE':83375.53,
+      '01B-TOP LACTEOS LATA E BAG':897069.26,'01D-CONDENSADOS INTEGRAL BAG':350585.19,'01F-CONDENSADOS SEMI-DESNATADO BAG':31135.41,
+      '02A-COBERTURA REGULAR NESTLE 500G - 1KG':15690.67,'02B-COBERTURA REGULAR NESTLE 2KG':42501.57,'02E-PASTAS':14538.58,
+      '02F-COBERTURA REGULAR GAROTO 2KG':4891.70,'02G-COBERTURA REGULAR GAROTO 500G - 1KG':1579.82,'02I-COMPOUND 500G - 1KG':285.76,
+      '02J-COMPOUND 2KG':101.15,'03A-MAGGI CALDOS':36763.73,'03B-MAGGI TEMPEROS':24771.37,'06A-INGREDIENTE ACHOCOLATADO':40536.14},
+    vbcSetor: {
+      '505': {'07A-CAFE GRAO NESCAFE':2783.36,'07B-CAFE MOIDO NESCAFE':1655.49,'07F-ACHOCOLATADO KIT KAT':1378.98,'07H-CAPPUCCINO NESCAFE':11913.93},
+      '510': {'07A-CAFE GRAO NESCAFE':48604.23,'07B-CAFE MOIDO NESCAFE':25470.21,'07F-ACHOCOLATADO KIT KAT':9508.30,'07H-CAPPUCCINO NESCAFE':71043.75},
+    },
+  },
   '2026-09': {
     cobEmpresa: {'01B-TOP LACTEOS LATA E BAG':183,'01D-CONDENSADOS INTEGRAL BAG':18,'01F-CONDENSADOS SEMI-DESNATADO BAG':6,
       '02A-COBERTURA REGULAR NESTLE 500G - 1KG':21,'02B-COBERTURA REGULAR NESTLE 2KG':21,'02E-PASTAS':36,
@@ -4992,11 +5043,22 @@ function brForcas(){
   _brForcasCache = {fonte, mapa};
   return mapa;
 }
-function brPontos(pct){ return pct==null ? 0 : pct>=1 ? 5 : pct>=0.6 ? 2 : 0; }
+// Regra da Nestlé (parcial de 16/10, conferida em todos os brokers): 100% da meta vale 5 pontos e
+// 60% vale 2; nas subcategorias de peso dobrado (02A, 02B, 02F, 02G, 03A, 03B) vale 10 e 4.
+// Igual para VBC e Cobertura.
+const BR_DOBRO = new Set(['02A','02B','02F','02G','03A','03B']);
+const brPontosMax = sub => BR_DOBRO.has(sub.slice(0,3)) ? 10 : 5;
+function brPontos(pct, sub){
+  if(pct==null || pct<0.6) return 0;
+  const max = brPontosMax(sub);
+  return pct>=1 ? max : max*0.4;
+}
 
 /* ---------------------- Cálculo ---------------------- */
 function brCalcular(mesKey){
   const {cad, origem} = brCadastroDoMes(mesKey);
+  // Peso da pontuação do broker no mês (ranking da Nestlé); cadastros antigos, sem o campo, seguem 1,15.
+  const peso = Number(cad.peso)>0 ? Number(cad.peso) : BR_MULT;
   const cal = crCalendario(mesKey);
   const iniISO = fmtDateOnly(cal.iniMs), ateISO = fmtDateOnly(cal.ateMs);
   const antISO = cal.diaAnteriorMs!=null ? fmtDateOnly(cal.diaAnteriorMs) : null;
@@ -5061,30 +5123,40 @@ function brCalcular(mesKey){
     return tt>0 ? num(vbcTri.get(st+'|'+sub))/tt*emp : 0;
   }
   // Linhas de um Setor (ou do total: soma dos Setores, com % e pontos sobre a soma).
-  function linhas(st){
+  // semOutros: total só da equipe 500, sem as vendas de outros vendedores da MB (usado no ranking
+  // para mostrar equipe 500 + outros = total da empresa).
+  function linhas(st, semOutros){
     const lista = st===BR_TOTAL ? setores : [st];
     const soma = f => lista.reduce((s, x) => s + f(x), 0);
     // No total da empresa, o efetivo inclui as vendas de outros vendedores da MB (FORA).
-    const somaEf = f => soma(f) + (st===BR_TOTAL ? f(FORA) : 0);
+    const somaEf = f => soma(f) + (st===BR_TOTAL && !semOutros ? f(FORA) : 0);
+    // No total da empresa a meta é a da Nestlé (cadastro "meta da empresa"), não a soma das
+    // metas arredondadas de cada Setor — o arredondamento por Setor inflava o total (ex.: meta 1
+    // virava 5) e tirava pontos. Sem meta da empresa informada (> 0), soma a dos Setores.
+    const metaTotal = (campo, sub, somaSetores) => {
+      if(st!==BR_TOTAL) return somaSetores;
+      const emp = num((cad[campo]||{})[sub]);
+      return emp>0 ? emp : somaSetores;
+    };
     const cobertura = BR_SUBCATS.map(sub => {
-      const meta = soma(x => metaCob(x, sub)), efetivo = somaEf(x => (compradores.get(x+'|'+sub)||new Set()).size);
+      const meta = metaTotal('cobEmpresa', sub, soma(x => metaCob(x, sub))), efetivo = somaEf(x => (compradores.get(x+'|'+sub)||new Set()).size);
       const ant = somaEf(x => (compradoresAnt.get(x+'|'+sub)||new Set()).size);
-      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
+      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct, sub);
       return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal, ant, evolucao: efetivo-ant,
-        pts, final: pts*BR_MULT, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
+        pts, final: pts*peso, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
     });
     const vbc = BR_SUBCATS.map(sub => {
-      const meta = soma(x => metaVbc(x, sub)), efetivo = somaEf(x => num(vbcMes.get(x+'|'+sub)));
-      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct);
+      const meta = metaTotal('vbcEmpresa', sub, soma(x => metaVbc(x, sub))), efetivo = somaEf(x => num(vbcMes.get(x+'|'+sub)));
+      const pct = meta>0 ? efetivo/meta : null, pts = brPontos(pct, sub);
       return {sub, meta, efetivo, saldo: meta-efetivo, pct, ok: pct!=null && pct>=cal.ideal,
         tendencia: cal.decorridos ? efetivo/cal.decorridos*cal.uteis : null,
-        pts, final: pts*BR_MULT, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
+        pts, final: pts*peso, objDia: Math.max(0, Math.ceil((meta-efetivo)/Math.max(1, cal.restantes)))};
     });
     const ptsCob = cobertura.reduce((s, l) => s + l.pts, 0), ptsVbc = vbc.reduce((s, l) => s + l.pts, 0);
-    return {cobertura, vbc, ptsCob, ptsVbc, finalCob: ptsCob*BR_MULT, finalVbc: ptsVbc*BR_MULT,
-      base: soma(base), total: (ptsCob+ptsVbc)*BR_MULT};
+    return {cobertura, vbc, ptsCob, ptsVbc, finalCob: ptsCob*peso, finalVbc: ptsVbc*peso,
+      base: soma(base), total: (ptsCob+ptsVbc)*peso};
   }
-  return {cad, origem, cal, setores, linhas, porCliente, triIni, triFim};
+  return {cad, origem, cal, setores, linhas, porCliente, triIni, triFim, peso};
 }
 
 /* ---------------------- Render ---------------------- */
@@ -5095,22 +5167,37 @@ function brSubTag(sub){ return `<span class="cr-cat-tag ${brCor(sub)}">${esc(sub
 function brRenderRanking(res){
   const vend = res.setores.filter(st => st!=='555').map(st => Object.assign({st}, res.linhas(st)));
   vend.sort((a, b) => b.total - a.total || a.st.localeCompare(b.st));
-  const tot = res.linhas(BR_TOTAL);
+  const tot = res.linhas(BR_TOTAL), eq = res.linhas(BR_TOTAL, true);
   const rows = vend.map((v, i) => ({pos: (i+1)+'º', setor: v.st, vbc: v.finalVbc, cob: v.finalCob, total: v.total, lider: i===0}));
+  // Os pontos saem do % sobre a meta, então a parte dos "Outros" é o que as vendas deles
+  // acrescentam ao total da empresa: total (equipe + outros) − só equipe.
+  const mais = v => v>0 ? '+' + brPtsFmt(v) : brPtsFmt(v);
   crTabela('table-br-ranking', [
     {key:'pos', label:'Colocação', format: (v, r) => r.lider ? `<span class="br-lider">🏆 ${esc(v)}</span>` : esc(v)},
     {key:'setor', label:'Setor'},
-    {key:'vbc', label:'VBC', align:'right', format: brPtsFmt},
-    {key:'cob', label:'Cobertura', align:'right', format: brPtsFmt},
-    {key:'total', label:'Total', align:'right', format: v => `<b>${brPtsFmt(v)}</b>`},
-  ], rows, {pos:'Supervisor 500 / Empresa 1', setor:'', vbc: tot.finalVbc, cob: tot.finalCob, total: tot.total});
+    {key:'vbc', label:'VBC', align:'right', format: (v, r) => r.outros ? mais(v) : brPtsFmt(v)},
+    {key:'cob', label:'Cobertura', align:'right', format: (v, r) => r.outros ? mais(v) : brPtsFmt(v)},
+    {key:'total', label:'Total', align:'right', format: (v, r) => `<b>${r.outros ? mais(v) : brPtsFmt(v)}</b>`},
+  ], rows, [
+    {pos:'Equipe 500', setor:'', vbc: eq.finalVbc, cob: eq.finalCob, total: eq.total},
+    {pos:'Outros (vendedores fora da equipe 500)', setor:'', vbc: tot.finalVbc-eq.finalVbc, cob: tot.finalCob-eq.finalCob, total: tot.total-eq.total, outros: true},
+    {pos:'Supervisor 500 / Empresa 1 (equipe + outros)', setor:'', vbc: tot.finalVbc, cob: tot.finalCob, total: tot.total},
+  ]);
+  const nota = document.getElementById('br-ranking-outros');
+  if(nota){
+    const vbcOutros = tot.vbc.reduce((s, l, i) => s + l.efetivo - eq.vbc[i].efetivo, 0);
+    const cliOutros = tot.cobertura.reduce((s, l, i) => s + l.efetivo - eq.cobertura[i].efetivo, 0);
+    nota.textContent = `Outros: vendedores fora da equipe 500 venderam ${fmtBRL(vbcOutros)} nas subcategorias do Brasileirão neste mês ` +
+      `(${fmtInt(cliOutros)} cliente(s) a mais na cobertura) — já somados no total da empresa. ` +
+      `Os pontos só aumentam quando essa venda faz a subcategoria chegar a 60% ou 100% da meta.`;
+  }
 }
 
 function brRenderResumo(res, st){
   const l = res.linhas(st), cal = res.cal;
-  const possib = BR_SUBCATS.length*5;
+  const possib = BR_SUBCATS.reduce((t, sub) => t + brPontosMax(sub), 0);
   renderKPIs('kpi-br', [
-    {label:'TT PTS (final)', value: brPtsFmt(l.total), note: `pontos × ${String(BR_MULT).replace('.', ',')}`},
+    {label:'TT PTS (final)', value: brPtsFmt(l.total), note: `pontos × ${String(res.peso).replace('.', ',')} (peso do mês)`},
     {label:'Cobertura — pontos', value: `${l.ptsCob} de ${possib}`, note: `final ${brPtsFmt(l.finalCob)}`},
     {label:'VBC — pontos', value: `${l.ptsVbc} de ${possib}`, note: `final ${brPtsFmt(l.finalVbc)}`},
     {label:'Ideal do dia', value: fmtPct(cal.ideal), note: `${cal.decorridos} de ${cal.uteis} dias úteis · faltam ${cal.restantes}`},
@@ -5218,7 +5305,7 @@ function brRenderPorCliente(res, setorSel){
     const cli = info.get(k), compras = res.porCliente.get(k) || {};
     const o = {sold, setor, razao: (cli && cli.razao) || ((clienteMetaMap && clienteMetaMap.get(sold)) || {}).razaoSocial || '—',
       canal: (cli && cli.canal) || '—', visita: cli && cli.dia ? SC_DIAS[cli.dia] : '—', dia: cli && cli.dia ? String(cli.dia) : '0',
-      ciclo: cli ? scCicloLabel(cli.ciclo) : '—', carteira: cli ? 'Sim' : 'Não', realizadas: 0, vbcTotal: 0};
+      realizadas: 0, vbcTotal: 0};
     BR_SUBCATS.forEach((sub, i) => {
       const v = compras[sub] || 0, r = compras[sub]!==undefined;
       o['r'+i] = r ? 1 : 0; o['v'+i] = v; if(r) o.realizadas++; o.vbcTotal += v;
@@ -5233,7 +5320,7 @@ function brRenderPorCliente(res, setorSel){
     && !(selCanal.value && o.canal!==selCanal.value) && !(diaSel && o.dia!==diaSel));
   const headers = [
     {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'setor', label:'Setor'},
-    {key:'canal', label:'Canal'}, {key:'visita', label:'Dia Vst'}, {key:'ciclo', label:'Ciclo'}, {key:'carteira', label:'Na carteira'},
+    {key:'canal', label:'Canal'}, {key:'visita', label:'Dia Vst'},
   ];
   BR_SUBCATS.forEach((sub, i) => headers.push({key:'v'+i, label: brCurto(sub), align:'center', cls: brCor(sub), format: (v, r) =>
     '<div class="cr-cel">' + (r['r'+i] ? pillHtml('R', 'var(--good-bg)', 'var(--good-ink)') : '<span class="cr-zero">S</span>') +
@@ -5281,11 +5368,15 @@ function brPreencherCadastro(mesKey, res){
   el.dataset.mes = mesKey;
   const cad = res.cad;
   const inp = (attrs, v) => `<input type="number" min="0" step="any" ${attrs} value="${v==null || v==='' ? '' : esc(v)}">`;
-  const npro = BR_SUBCATS.filter(s => !BR_POR_SETOR(s)), beb = BR_SUBCATS.filter(BR_POR_SETOR);
-  let html = '<div class="table-wrap"><table class="datatable cr-cad-table"><thead><tr><th>Meta da empresa</th>' +
-    npro.map(s => `<th class="${brCor(s)}" style="text-align:right" title="${esc(s)}">${esc(brCurto(s))}</th>`).join('') + '</tr></thead><tbody>';
-  html += '<tr><td>Cobertura (clientes)</td>' + npro.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-cobemp="${esc(s)}"`, (cad.cobEmpresa||{})[s])}</td>`).join('') + '</tr>';
-  html += '<tr><td>VBC (R$)</td>' + npro.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-vbcemp="${esc(s)}"`, (cad.vbcEmpresa||{})[s])}</td>`).join('') + '</tr>';
+  const beb = BR_SUBCATS.filter(BR_POR_SETOR);
+  // Meta da empresa = a do relatório da Nestlé, de TODAS as subcategorias (nas 07x ela vale só para o
+  // total da empresa; a meta de cada Setor fica na segunda tabela).
+  let html = `<div class="nrab-field" style="max-width:260px; margin-bottom:10px;"><span class="flabel">Peso da pontuação (ranking da Nestlé)</span>` +
+    `${inp('id="br-cad-peso"', cad.peso)}</div>`;
+  html += '<div class="table-wrap"><table class="datatable cr-cad-table"><thead><tr><th>Meta da empresa (Nestlé)</th>' +
+    BR_SUBCATS.map(s => `<th class="${brCor(s)}" style="text-align:right" title="${esc(s)}">${esc(brCurto(s))}</th>`).join('') + '</tr></thead><tbody>';
+  html += '<tr><td>Cobertura (clientes)</td>' + BR_SUBCATS.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-cobemp="${esc(s)}"`, (cad.cobEmpresa||{})[s])}</td>`).join('') + '</tr>';
+  html += '<tr><td>VBC (R$)</td>' + BR_SUBCATS.map(s => `<td class="${brCor(s)}" style="text-align:right">${inp(`data-br-vbcemp="${esc(s)}"`, (cad.vbcEmpresa||{})[s])}</td>`).join('') + '</tr>';
   html += '</tbody></table></div>';
   html += '<div class="table-wrap" style="margin-top:12px;"><table class="datatable cr-cad-table"><thead><tr><th rowspan="2">Setor</th>' +
     beb.map(s => `<th colspan="2" class="cr-grupo ${brCor(s)}" title="${esc(s)}">${esc(s)}</th>`).join('') + '</tr><tr>' +
@@ -5301,6 +5392,8 @@ function brPreencherCadastro(mesKey, res){
 function brLerCadastro(){
   const rec = {cobEmpresa:{}, vbcEmpresa:{}, cobSetor:{}, vbcSetor:{}};
   const n = i => i.value==='' ? 0 : Number(i.value);
+  const pesoEl = document.getElementById('br-cad-peso');
+  if(pesoEl && pesoEl.value!=='') rec.peso = Number(pesoEl.value);
   document.querySelectorAll('[data-br-cobemp]').forEach(i => { rec.cobEmpresa[i.dataset.brCobemp] = n(i); });
   document.querySelectorAll('[data-br-vbcemp]').forEach(i => { rec.vbcEmpresa[i.dataset.brVbcemp] = n(i); });
   document.querySelectorAll('[data-br-cobset]').forEach(i => { const st = i.dataset.brCobset; (rec.cobSetor[st] = rec.cobSetor[st] || {})[i.dataset.brSub] = n(i); });
@@ -5336,6 +5429,285 @@ function initBrasileirao(){
   RENDERERS.brasileirao = renderBrasileirao;
 }
 
+/* ============================================================================
+   AGENDA DAS CULINARISTAS — módulo isolado
+   ----------------------------------------------------------------------------
+   Réplica das abas RENATA / JESSICA / ANDREZZA / SILVANIA da planilha "Agenda
+   Culinaristas": por dia do mês, o Sold que a culinarista visita, com Razão
+   Social, Bairro, Cidade, YTD do ano anterior, YTD do ano e CRES %.
+   - O Sold, a data e a observação são DIGITADOS (editáveis na tela, antes de
+     imprimir); o resto da linha é derivado do Sold.
+   - YTD = faturamento dos grupos NP 01 a 06 (mesmos produtos do "Banco" da
+     planilha) do Sold, de 1º de janeiro até a data da última venda enviada; o
+     ano anterior vai até o mesmo dia/mês. CRES % = YTD do ano ÷ YTD do ano
+     anterior − 1 (0 quando o ano anterior é zero). A planilha somava o banco
+     inteiro de cada ano, de datas de corte diferentes; aqui a comparação é
+     sempre dia a dia e atualiza sozinha com o Enviar Vendas.
+   - Razão/Bairro/Cidade vêm das vendas/carteira enviadas; se o Sold não estiver
+     lá (clientes do interior), valem os dados copiados da planilha.
+   - Culinaristas e agendas salvas são publicados para todos (DATA.agendaCulinaristas).
+   ========================================================================= */
+const AG_DIAS = ['DOMINGO','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA','SÁBADO'];
+const AG_MESES = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+const AG_NOMES_SEMENTE = ['RENATA','JESSICA','ANDREZZA','SILVANIA'];
+// Linhas [MM-DD, Sold, observação] da agenda de outubro/2026 — valem até alguém salvar.
+const AG_SEMENTE = {
+  '2026-10': {
+    RENATA: [["10-01",7485300,null],["10-02",919205,null],["10-05",3280794,null],["10-06",7463050,null],["10-07",7463050,null],["10-08",7463050,null],["10-09",1111956,null],["10-12",null,"FERIADO"],["10-13",7490734,null],["10-14",7485300,null],["10-15",920927,null],["10-16",6878110,null],["10-19",3105995,null],["10-20",7512681,null],["10-21",5706634,null],["10-22",5116819,null],["10-23",7248650,null],["10-26",6735823,null],["10-27",943586,null],["10-28",4132046,null],["10-29",920928,null],["10-30",7355588,null]],
+    JESSICA: [["10-01",7485300,null],["10-02",919205,null],["10-05",3280794,null],["10-06",7463050,null],["10-07",7463050,null],["10-08",7463050,null],["10-09",1111956,null],["10-12",null,"FERIADO"],["10-13",7490734,null],["10-14",7485300,null],["10-15",4026419,null],["10-16",6878110,null],["10-19",3105995,null],["10-20",7589917,null],["10-21",1111956,null],["10-22",5116819,null],["10-23",7248650,null],["10-26",6735823,null],["10-27",7055951,null],["10-28",4132046,null],["10-29",2070471,null],["10-30",7355588,null]],
+    ANDREZZA: [["10-01",5706634,null],["10-02",919205,null],["10-03",919205,null],["10-05",5568784,null],["10-06",920927,null],["10-07",7490734,null],["10-08",920927,null],["10-09",7512681,"dia das crianças"],["10-09",7512681,"dia das crianças"],["10-12",null,"FERIADO"],["10-13",null,"FOLGA"],["10-14",7644749,"hiper nando"],["10-15",7355588,null],["10-16",920928,null],["10-19",5706634,null],["10-20",7589917,null],["10-21",6193105,"lorena"],["10-22",920927,null],["10-23",2124257,null],["10-26",6347363,null],["10-27",4059354,"supermercado 2000"],["10-28",6735823,null],["10-29",920927,null],["10-30",3983021,"luanda - lurdes"]],
+    SILVANIA: [["10-01",6212992,null],["10-02",919205,null],["10-02",919205,null],["10-05",null,"cencosud"],["10-06",5075903,null],["10-07",null,"cencosud"],["10-08",6967843,null],["10-09",null,"cencosud"],["10-12",null,"FERIADO"],["10-13",null,"FOLGA"],["10-14",null,"cencosud"],["10-15",4026419,null],["10-16",914606,null],["10-19",null,"cencosud"],["10-20",null,null],["10-21",null,"cencosud"],["10-22",1111956,null],["10-23",null,"cencosud"],["10-26",null,"cencosud"],["10-27",7055951,null],["10-28",null,"cencosud"],["10-29",2070471,null],["10-30",null,"cencosud"]]
+  },
+};
+// Sold -> [Razão, Bairro, Cidade] copiados da planilha (usados só se as vendas/carteira não conhecem o Sold).
+const AG_CLIENTES_SEMENTE = {"914606":["Petrox Comercial Ltda","Povoado Pau Grande","NOSSA SENHORA DO SOCORRO"],"919205":["M B Logistica E Representacao Ltda","Povoado Sobrado","NOSSA SENHORA DO SOCORRO"],"920927":["Supermercado Sao Lucas Ltda","Centro","ITABAIANA"],"920928":["Supermercado Sao Lucas Ltda","Novo Horizonte","NOSSA SENHORA DA GLORIA"],"943586":["Supermercado Bombom Ltda","Centro","ESTANCIA"],"1111956":["Petrox Comercial Ltda","Farolandia","ARACAJU"],"2070471":["Petrox Comercial Ltda","Treze de Julho","ARACAJU"],"2124257":["Delicatessen Trigo e Arte Ltda","Salgado Filho","ARACAJU"],"3105995":["Panificacao Bom Trigo Ltda ME","Dezoito do Forte","ARACAJU"],"3280794":["Petrox Comercial Ltda","Centro","BARRA DOS COQUEIROS"],"3983021":["Teles & Resende Comercio Ltda","","NOSSA SENHORA DE LOURDES"],"4026419":["Petrox Comercial Ltda","Aruana","ARACAJU"],"4059354":["Restaurante 2000 Ltda ME","Centro","AQUIDABA"],"4132046":["Rafaela Nascimento Barreto Oliveira","Centro","RIBEIROPOLIS"],"5075903":["Petrox Comercial Ltda","Jabotiana","ARACAJU"],"5116819":["Lenilson Lima M Supermercado Ltda","Ponto Novo","ARACAJU"],"5568784":["Panificadora Lanch Ferreira Ltda","Centro","ARACAJU"],"5706634":["Delicatessen Brioche Ltda","Grageru","ARACAJU"],"6193105":["Lorena Andrade Feitosa Ltda","","NOSSA SENHORA DE LOURDES"],"6212992":["Panificacao Melo & Melo Ltda","Bugio","ARACAJU"],"6347363":["Novo Rumo Supermercado EIRELI","Marcos Freire II","NOSSA SENHORA DO SOCORRO"],"6735823":["Supermercado Hiper C Barra Ltda","Centro","BARRA DOS COQUEIROS"],"6878110":["Rafael Carnes Ltda","Aeroporto","ARACAJU"],"6967843":["Petrox Comercial Ltda","Atalaia","ARACAJU"],"7055951":["Petrox Comercial Ltda","Aruana","ARACAJU"],"7248650":["Supermercado Jabotiana Ltda","Jabotiana","ARACAJU"],"7355588":["Rede Mais Comercio Alimentos Ltda","America","ARACAJU"],"7463050":["Petrox Comercial Ltda","Jabotiana","ARACAJU"],"7485300":["Lenilson Lima M Supermercado Ltda","Luzia","ARACAJU"],"7490734":["Supermercado Jabotiana Ltda","Aruana","ARACAJU"],"7512681":["Primus Distribuicao E Varejo Ltda","Coroa do Meio","ARACAJU"],"7589917":["Tunas Restaurante E Petiscaria","Atalaia","ARACAJU"],"7644749":["F L Supermercados Ltda","Centro","PROPRIA"]};
+
+let agWork = {};          // 'AAAA-MM|NOME' -> linhas em edição [{data, sold, obs}] (não se perdem ao trocar de culinarista/mês)
+let agPublicando = false;
+let _agCache = {bv:null, cart:null, ytd:null, ano:null, corteMD:null, corteISO:null, carteiraMapa:null};
+
+function agNomes(){
+  const a = DATA.agendaCulinaristas;
+  return (a && Array.isArray(a.nomes)) ? a.nomes : AG_NOMES_SEMENTE;
+}
+function agNomeSelecionado(){ return (document.getElementById('ag-nome')||{}).value || ''; }
+function agMesSelecionado(){ return (document.getElementById('ag-mes')||{}).value || crMesAtualKey(); }
+function agTituloAgenda(mes, nome){
+  const [a, m] = mes.split('-').map(Number);
+  return `AGENDA ${AG_MESES[m-1] || ''} ${a} - ${nome}`;
+}
+function agDiaNome(iso){ return AG_DIAS[new Date(parseDateOnly(iso)).getUTCDay()]; }
+function agDiasUteisDoMes(mes){
+  const [a, m] = mes.split('-').map(Number), lista = [];
+  for(let ms=Date.UTC(a, m-1, 1); new Date(ms).getUTCMonth()===m-1; ms+=SC_DIA_MS){
+    if(scDiaSemana(ms)<=5) lista.push(fmtDateOnly(ms));
+  }
+  return lista;
+}
+// Linhas de partida de uma agenda: salva > dados iniciais da planilha > um dia útil por linha, em branco.
+function agLinhasBase(mes, nome){
+  const a = DATA.agendaCulinaristas, salvo = a && a.meses && a.meses[mes] && a.meses[mes][nome];
+  if(salvo) return salvo.map(r => ({data: r.data, sold: r.sold ? String(r.sold) : '', obs: r.obs || ''}));
+  const sem = AG_SEMENTE[mes] && AG_SEMENTE[mes][nome];
+  if(sem) return sem.map(([md, s, o]) => ({data: mes.slice(0,4) + '-' + md, sold: s ? String(s) : '', obs: o || ''}));
+  return agDiasUteisDoMes(mes).map(d => ({data: d, sold: '', obs: ''}));
+}
+function agLinhas(mes, nome){
+  const k = mes + '|' + nome;
+  if(!agWork[k]) agWork[k] = agLinhasBase(mes, nome);
+  return agWork[k];
+}
+
+/* ---- Derivados do Sold ---- */
+function agContexto(){
+  const bv = DATA.baseVendas || [], cart = scDados().carteira;
+  if(_agCache.bv===bv && _agCache.cart===cart && _agCache.ytd) return _agCache;
+  let max = '';
+  for(const r of bv){ if(r[3] && r[3]>max) max = r[3]; }
+  const ano = max ? Number(max.slice(0,4)) : new Date().getFullYear(), md = max ? max.slice(5) : '12-31';
+  const ytd = new Map(); // Sold -> [YTD do ano anterior, YTD do ano]
+  for(const r of bv){
+    const iso = r[3]; if(!iso || !/^0[1-6]-NP/.test(String(r[5]||''))) continue;
+    const y = Number(iso.slice(0,4)); let i = -1;
+    if(y===ano) i = 1; else if(y===ano-1 && iso.slice(5)<=md) i = 0;
+    if(i<0) continue;
+    const k = String(r[0]); let o = ytd.get(k); if(!o){ o = [0,0]; ytd.set(k, o); }
+    o[i] += Number(r[9])||0;
+  }
+  const carteiraMapa = new Map();
+  cart.forEach(c => { if(!carteiraMapa.has(c.sold)) carteiraMapa.set(c.sold, c); });
+  _agCache = {bv, cart, ytd, ano, corteMD: md, corteISO: max, carteiraMapa};
+  return _agCache;
+}
+function agCliente(sold){
+  const s = String(sold||'').trim(); if(!s) return null;
+  const meta = clienteMetaMap && clienteMetaMap.get(s), cart = agContexto().carteiraMapa.get(s), sem = AG_CLIENTES_SEMENTE[s];
+  const razao = (meta && meta.razaoSocial) || (cart && cart.razao) || (sem && sem[0]) || null;
+  const bairro = (cart && cart.bairro) || (sem && sem[1]) || '';
+  const cidade = String((cart && cart.cidade) || (sem && sem[2]) || '').toUpperCase();
+  return (razao || bairro || cidade) ? {razao: razao || '—', bairro, cidade} : null;
+}
+function agDerivado(sold){
+  const s = String(sold||'').trim();
+  if(!s) return {vazio:true, razao:'', bairro:'', cidade:'', y0:0, y1:0, cres:0, achou:true};
+  const c = agCliente(s), y = agContexto().ytd.get(s) || [0,0];
+  return {vazio:false, razao: c ? c.razao : 'Sold não encontrado', bairro: c ? c.bairro : '', cidade: c ? c.cidade : '',
+    y0: y[0], y1: y[1], cres: y[0]>0 ? y[1]/y[0]-1 : 0, achou: !!c};
+}
+const agMoeda = v => v>0 ? fmtBRL(v) : 'R$ -';
+const agPct = v => (v*100).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + '%';
+function agCresCor(v){ return v>0 ? ['var(--good-bg)','var(--good-ink)'] : v<0 ? ['var(--critical-bg)','var(--critical-ink)'] : ['var(--warning-bg)','var(--warning-ink)']; }
+// Acima de 100% o número exato não ajuda a ler a agenda (ex.: 75.931%): mostra "+ de 100%".
+function agCresHtml(v){ const c = agCresCor(v); return pillHtml(v>1 ? '+ de 100%' : agPct(v), c[0], c[1]); }
+function agPeriodoLabel(){
+  const ctx = agContexto();
+  return ctx.corteISO ? `YTD de 01/01 até ${fmtDateBR(parseDateOnly(ctx.corteISO))} (${ctx.ano-1} até o mesmo dia)` : 'sem vendas enviadas';
+}
+
+/* ---- Tabela editável ---- */
+function agCabecalho(){
+  const ano = agContexto().ano;
+  return `<tr class="ag-head"><th>Data</th><th>Dia</th><th>Sold</th><th>Razão</th><th>Observação</th><th>Bairro</th><th>Cidade</th>` +
+    `<th class="ag-num">YTD ${ano-1}</th><th class="ag-num">YTD ${ano}</th><th class="ag-num">CRES %</th><th></th></tr>`;
+}
+function agCelulasDerivadas(d){
+  return {
+    razao: d.vazio ? '' : (d.achou ? esc(d.razao) : `<span class="ag-nao-achou">${esc(d.razao)}</span>`),
+    bairro: esc(d.bairro), cidade: esc(d.cidade),
+    y0: d.vazio ? '' : agMoeda(d.y0), y1: d.vazio ? '' : agMoeda(d.y1), cres: d.vazio ? '' : agCresHtml(d.cres),
+  };
+}
+function agLinhaHtml(l, i){
+  const c = agCelulasDerivadas(agDerivado(l.sold));
+  return `<tr data-i="${i}"><td>${esc(fmtDateBR(parseDateOnly(l.data)))}</td><td>${esc(agDiaNome(l.data))}</td>` +
+    `<td><input class="ag-in ag-sold" data-ag="sold" inputmode="numeric" list="ag-sold-list" autocomplete="off" value="${esc(l.sold)}" aria-label="Sold"></td>` +
+    `<td data-c="razao">${c.razao}</td>` +
+    `<td><input class="ag-in ag-obs" data-ag="obs" value="${esc(l.obs)}" aria-label="Observação"></td>` +
+    `<td data-c="bairro">${c.bairro}</td><td data-c="cidade">${c.cidade}</td>` +
+    `<td class="ag-num" data-c="y0">${c.y0}</td><td class="ag-num" data-c="y1">${c.y1}</td><td class="ag-num" data-c="cres">${c.cres}</td>` +
+    `<td class="no-print"><button type="button" class="ag-btn" data-ag-add title="Adicionar outra linha neste dia">+</button>` +
+    `<button type="button" class="ag-btn" data-ag-del title="Remover esta linha">×</button></td></tr>`;
+}
+function agRenderTabela(){
+  const el = document.getElementById('ag-tabela');
+  const mes = agMesSelecionado(), nome = agNomeSelecionado();
+  const linhas = agLinhas(mes, nome);
+  let html = '<table class="ag-table"><tbody>', semanaAtual = null;
+  linhas.forEach((l, i) => {
+    const sem = scInicioSemanaMs(parseDateOnly(l.data));
+    if(sem!==semanaAtual){ html += agCabecalho(); semanaAtual = sem; }
+    html += agLinhaHtml(l, i);
+  });
+  el.innerHTML = html + '</tbody></table>';
+  if(!el._agWired){
+    el.addEventListener('input', e => {
+      const campo = e.target.dataset && e.target.dataset.ag; if(!campo) return;
+      const tr = e.target.closest('tr'), l = agLinhas(agMesSelecionado(), agNomeSelecionado())[Number(tr.dataset.i)];
+      if(campo==='sold'){
+        l.sold = e.target.value.replace(/\D/g,'');
+        const c = agCelulasDerivadas(agDerivado(l.sold));
+        Object.keys(c).forEach(k => { tr.querySelector(`[data-c="${k}"]`).innerHTML = c[k]; });
+      } else l.obs = e.target.value;
+      agMarcarSujo(true);
+    });
+    el.addEventListener('click', e => {
+      const add = e.target.closest('[data-ag-add]'), del = e.target.closest('[data-ag-del]');
+      if(!add && !del) return;
+      const linhasAtuais = agLinhas(agMesSelecionado(), agNomeSelecionado()), i = Number(e.target.closest('tr').dataset.i);
+      if(add) linhasAtuais.splice(i+1, 0, {data: linhasAtuais[i].data, sold:'', obs:''});
+      else if(linhasAtuais.some((x, j) => j!==i && x.data===linhasAtuais[i].data)) linhasAtuais.splice(i, 1);
+      else { linhasAtuais[i].sold = ''; linhasAtuais[i].obs = ''; }
+      agMarcarSujo(true); agRenderTabela();
+    });
+    el._agWired = true;
+  }
+}
+function agMarcarSujo(sujo){
+  const st = document.getElementById('ag-status'); if(!st) return;
+  st.textContent = sujo ? 'Alterações ainda não salvas (a impressão já usa o que está na tela).' : '';
+  st.classList.toggle('is-dirty', !!sujo);
+}
+// Impressão: título grande centralizado + uma tabela por semana (segunda a sexta), montada
+// na hora de imprimir a partir do que está na tela.
+function agPrintHtml(){
+  const mes = agMesSelecionado(), nome = agNomeSelecionado(), ano = agContexto().ano;
+  const headers = [
+    {key:'data', label:'Data'}, {key:'dia', label:'Dia'}, {key:'sold', label:'Sold'}, {key:'razao', label:'Razão'},
+    {key:'obs', label:'Observação'}, {key:'bairro', label:'Bairro'}, {key:'cidade', label:'Cidade'},
+    {key:'y0', label:`YTD ${ano-1}`, align:'right'}, {key:'y1', label:`YTD ${ano}`, align:'right'},
+    {key:'cres', label:'CRES %', align:'right', format: (v, r) => r.vazio ? '' : agCresHtml(v)},
+  ];
+  const semanas = [];
+  agLinhas(mes, nome).forEach(l => {
+    const ini = scInicioSemanaMs(parseDateOnly(l.data));
+    let s = semanas[semanas.length-1];
+    if(!s || s.ini!==ini){ s = {ini, linhas: []}; semanas.push(s); }
+    const d = agDerivado(l.sold);
+    s.linhas.push({data: fmtDateBR(parseDateOnly(l.data)), dia: agDiaNome(l.data), sold: l.sold, razao: d.razao, obs: l.obs,
+      bairro: d.bairro, cidade: d.cidade, y0: d.vazio ? '' : agMoeda(d.y0), y1: d.vazio ? '' : agMoeda(d.y1), cres: d.cres, vazio: d.vazio, iso: l.data});
+  });
+  return `<div class="ag-print-titulo">${esc(agTituloAgenda(mes, nome))}</div>` + semanas.map(s => {
+    const de = s.linhas[0].data.slice(0,5), ate = s.linhas[s.linhas.length-1].data.slice(0,5);
+    return `<div class="ag-print-semana">${renderPrintTableHtml(`Semana de ${de} a ${ate}`, headers, s.linhas)}</div>`;
+  }).join('');
+}
+
+/* ---- Tela ---- */
+function agMsg(texto, tipo){
+  const el = document.getElementById('ag-msg'); if(!el) return;
+  el.textContent = texto || '';
+  el.className = 'nrab-msg' + (tipo==='erro' ? ' is-error' : tipo==='ok' ? ' is-ok' : '');
+}
+function renderAgenda(){
+  const sel = document.getElementById('ag-nome'); if(!sel) return;
+  const nomes = agNomes(), atual = nomes.includes(sel.value) ? sel.value : (nomes[0] || '');
+  sel.innerHTML = nomes.length ? nomes.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('') : '<option value="">(nenhuma culinarista)</option>';
+  sel.value = atual;
+  const mesEl = document.getElementById('ag-mes'); if(!mesEl.value) mesEl.value = crMesAtualKey();
+  document.getElementById('ag-sold-list').innerHTML = (DATA.clientes||[]).map(c => `<option value="${esc(String(c[0]))}">${esc(c[1]||'')}</option>`).join('');
+  document.getElementById('ag-remover').style.display = atual ? '' : 'none';
+
+  const hint = document.getElementById('ag-hint'), wrap = document.getElementById('ag-wrap');
+  if(!atual){
+    wrap.style.display = 'none'; hint.style.display = '';
+    hint.textContent = 'Nenhuma culinarista cadastrada: adicione uma acima.';
+    return;
+  }
+  hint.style.display = 'none'; wrap.style.display = '';
+  const mes = mesEl.value;
+  document.getElementById('ag-titulo').textContent = agTituloAgenda(mes, atual);
+  document.getElementById('ag-sub').textContent = `${agPeriodoLabel()} · grupos NP 01 a 06 · CRES % = YTD do ano ÷ YTD do ano anterior − 1.`;
+  agRenderTabela();
+}
+function agPublicar(nomes, meses, okTexto){
+  if(agPublicando) return Promise.resolve({ok:false, erro:new Error('aguarde a publicação anterior')});
+  agPublicando = true;
+  return publicarCampoDATA('agendaCulinaristas', {nomes, meses}, 'agenda das culinaristas', 'agenda-culinaristas').then(r => {
+    agPublicando = false;
+    if(r.ok) agMsg(okTexto, 'ok'); else agMsg(`Não consegui publicar (${(r.erro && r.erro.message) || r.erro}) — nada foi alterado.`, 'erro');
+    return r;
+  });
+}
+function agMesesAtuais(){ return JSON.parse(JSON.stringify((DATA.agendaCulinaristas && DATA.agendaCulinaristas.meses) || {})); }
+
+function initAgenda(){
+  if(!document.getElementById('ag-filtros')) return; // aba não presente neste HTML — módulo fica inerte
+  document.getElementById('ag-mes').value = crMesAtualKey();
+  ['ag-nome','ag-mes'].forEach(id => document.getElementById(id).addEventListener('change', () => { agMsg('', ''); agMarcarSujo(false); renderAgenda(); }));
+  document.getElementById('ag-add-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const inp = document.getElementById('ag-add-nome'), nome = inp.value.trim().replace(/\s+/g,' ').toUpperCase();
+    if(!nome){ agMsg('Digite o nome da culinarista.', 'erro'); return; }
+    if(agNomes().includes(nome)){ agMsg(`${nome} já está na lista.`, 'erro'); return; }
+    agMsg('Publicando…', '');
+    agPublicar(agNomes().concat(nome), agMesesAtuais(), `Culinarista ${nome} adicionada para todos.`).then(r => {
+      if(!r.ok) return;
+      inp.value = '';
+      renderAgenda(); // recria a lista com o novo nome…
+      document.getElementById('ag-nome').value = nome; renderAgenda(); // …e a seleciona
+    });
+  });
+  document.getElementById('ag-remover').addEventListener('click', () => {
+    const nome = agNomeSelecionado(); if(!nome) return;
+    if(!confirm(`Remover ${nome} da lista de culinaristas? Vale para todos; as agendas já salvas dela ficam guardadas.`)) return;
+    agMsg('Publicando…', '');
+    agPublicar(agNomes().filter(n => n!==nome), agMesesAtuais(), `Culinarista ${nome} removida da lista.`).then(r => { if(r.ok) renderAgenda(); });
+  });
+  document.getElementById('ag-salvar').addEventListener('click', () => {
+    const mes = agMesSelecionado(), nome = agNomeSelecionado(); if(!nome) return;
+    const meses = agMesesAtuais();
+    meses[mes] = Object.assign({}, meses[mes] || {}, {[nome]: agLinhas(mes, nome).map(l => ({data: l.data, sold: l.sold.trim() || null, obs: l.obs.trim() || null}))});
+    agMsg('Publicando agenda…', '');
+    agPublicar(agNomes().slice(), meses, `${agTituloAgenda(mes, nome)} salva e publicada para todos.`).then(r => { if(r.ok) agMarcarSujo(false); });
+  });
+  document.getElementById('ag-descartar').addEventListener('click', () => {
+    if(!confirm('Descartar as alterações não salvas desta agenda?')) return;
+    delete agWork[agMesSelecionado() + '|' + agNomeSelecionado()];
+    agMarcarSujo(false); agMsg('', ''); renderAgenda();
+  });
+  RENDERERS.agenda = renderAgenda;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -5354,6 +5726,7 @@ function init(){
   initSemCompra();
   initCrescer();
   initBrasileirao();
+  initAgenda();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();
