@@ -5953,6 +5953,7 @@ function caMarcarVisao(){
    Categoria = GRUPO da planilha de vendas. Mês em andamento é comparado com o ano
    anterior até o mesmo dia; a tendência é comparada com o mês do ano anterior inteiro. */
 const CT_SEM_GRUPO = 'Produto Sem Grupo';
+const CT_CATS = new Set(CR_CATEGORIAS_CLIENTE);
 function ctEhNP(cat){ return /^[0-9]{2}-NP? /.test(cat); }
 function ctLerFiltros(){
   const v = id => document.getElementById(id).value;
@@ -5993,7 +5994,9 @@ function ctCalcular(f){
     if(f.visao==='brn8' ? r[7]!=='BEBIDAS' : f.visao==='brn2' ? r[7]==='BEBIDAS' : false) continue;
     const setor = String(r[1]); if(f.setor && setor!==f.setor) continue;
     const sold = String(r[0]), canal = canalDe(sold); if(f.canal && canal!==f.canal) continue;
-    const cat = r[5] || CT_SEM_GRUPO, fat = Number(r[9])||0, par = sold + '|' + setor;
+    // Só as 7 categorias Nestlé Professional (a pedido do usuário): Varejo e 'Produto Sem Grupo' ficam fora.
+    const cat = r[5]; if(!CT_CATS.has(cat)) continue;
+    const fat = Number(r[9])||0, par = sold + '|' + setor;
     for(const per of PERS){
       if(d < P[per][0] || d > P[per][1]) continue;
       let c = porCat.get(cat); if(!c){ c = novo(); porCat.set(cat, c); cobCat.set(cat, novoCob()); }

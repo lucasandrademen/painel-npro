@@ -858,7 +858,7 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 #table-ca-canal td, #table-ca-canal th{white-space:nowrap;}
 
 /* Análise por Categoria */
-.ct-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap:14px;}
+.ct-grid{display:grid; grid-template-columns:1fr; gap:14px;}
 .ct-grid td, .ct-grid th, #table-ct-cli td{white-space:nowrap;}
 .ct-grid .ca-col-at{background:color-mix(in srgb, var(--accent) 7%, transparent);}
 .ct-grid .ca-col-obj{background:color-mix(in srgb, #E0A100 10%, transparent);}
