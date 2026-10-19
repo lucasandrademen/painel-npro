@@ -98,6 +98,7 @@ const TABS = [
   {id:"canal", label:"Análise por Canal"},
   {id:"categoria", label:"Análise por Categoria"},
   {id:"acumulado", label:"Acumulado até o mês passado"},
+  {id:"garoto", label:"Análise Garoto"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2948,6 +2949,18 @@ const PRINT_CONFIG = {
       const chips = [['Visão', CA_VISOES[f.visao]], ['Mês', f.mes.slice(5,7) + '/' + f.mes.slice(0,4)], ['Setor', f.setor ? scVendedorLabel(f.setor) : '(Todos)']];
       if(f.canal) chips.push(['Canal', f.canal]);
       return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
+    },
+  },
+  garoto: {
+    title:'Análise por Categoria — Garoto', orientation:'landscape', kpi:'kpi-gar', blocks:[], hideFilters:true,
+    tables:[{id:'table-gar-fat-ytd', title:'Faturamento YTD'}, {id:'table-gar-fat-mes', title:'Faturamento mensal'},
+      {id:'table-gar-cob-ytd', title:'Cobertura YTD'}, {id:'table-gar-cob-mes', title:'Cobertura mensal'}, {id:'table-gar-cli', title:'Visão por cliente'}],
+    periodLabel: () => document.getElementById('gar-info').textContent,
+    headerExtra: () => {
+      const f = garLerFiltros();
+      const chips = [['Visão', CA_VISOES[f.visao]], ['Mês', f.mes.slice(5,7) + '/' + f.mes.slice(0,4)], ['Setor', f.setor ? scVendedorLabel(f.setor) : '(Todos)']];
+      if(f.canal) chips.push(['Canal', f.canal]);
+      return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '<span class="gar-print-logo"><img src="assets/logo-garoto.png" alt="Garoto"></span></div>';
     },
   },
   acumulado: {
@@ -6315,6 +6328,208 @@ function initAcumulado(){
   RENDERERS.acumulado = renderAcumulado;
 }
 
+/* ============================================================================
+   ANÁLISE GAROTO — categorias (famílias) do grupo GAROTO, BRN2 e BRN8, e por cliente
+   ============================================================================
+   Mesmas contas da Análise por Categoria (YTD e mês × ano anterior, tendência, cobertura), mas
+   só com produtos do grupo GAROTO, abertos por família. */
+const GAR_ORDEM = ['CAIXAS GAROTO','JUMBOS GAROTO','JUMBOS TALENTO','JUMBOS RECHEADOS GAROTO','BOMBONS GAROTO','BATON','CANDY BARS GAROTO','POS GAROTO','TABLETES GAROTO','PASTILHAS','COBERTURAS GAROTO','CAIXAS ESPECIAIS GAROTO'];
+function garLerFiltros(){
+  const v = id => document.getElementById(id).value;
+  return {mes: v('gar-mes') || crMesAtualKey(), visao: v('gar-visao') || 'todos', setor: v('gar-setor'), canal: v('gar-canal'),
+    cat: v('gar-cli-cat'), mostrar: v('gar-cli-mostrar')};
+}
+function garCalcular(f){
+  const [ano, mes] = f.mes.split('-').map(Number);
+  const fimMes = Date.UTC(ano, mes, 0), ultISO = caUltimaVendaISO();
+  const ateMs = ultISO ? Math.max(Date.UTC(ano, mes-1, 1), Math.min(fimMes, parseDateOnly(ultISO))) : fimMes;
+  const parcial = ateMs < fimMes, dia = new Date(ateMs).getUTCDate();
+  const ateAAms = Date.UTC(ano-1, mes-1, Math.min(dia, new Date(Date.UTC(ano-1, mes, 0)).getUTCDate()));
+  const iso = ms => fmtDateOnly(ms);
+  const P = {
+    mesAt: [iso(Date.UTC(ano, mes-1, 1)), iso(ateMs)], mesAA: [iso(Date.UTC(ano-1, mes-1, 1)), iso(ateAAms)],
+    ytdAt: [iso(Date.UTC(ano, 0, 1)), iso(ateMs)], ytdAA: [iso(Date.UTC(ano-1, 0, 1)), iso(ateAAms)],
+    mesAAc: [iso(Date.UTC(ano-1, mes-1, 1)), iso(Date.UTC(ano-1, mes, 0))],
+  };
+  // Dias úteis do mês e corridos até o último dia com venda (para a tendência).
+  const fer = crFeriadosDoMes(f.mes);
+  const util = ms => scDiaSemana(ms)<=5 && !fer.has(fmtDateOnly(ms));
+  let uteis = 0, corridos = 0;
+  for(let ms = Date.UTC(ano, mes-1, 1); ms <= fimMes; ms += SC_DIA_MS){ if(util(ms)){ uteis++; if(ms <= ateMs) corridos++; } }
+
+  const {carteira} = scDados();
+  const cad = new Map();
+  carteira.forEach(c => { const o = cad.get(c.sold); if(!o) cad.set(c.sold, {razao: c.razao, canal: c.canal || null}); else if(!o.canal && c.canal) o.canal = c.canal; });
+  const razoes = new Map((DATA.clientes||[]).map(c => [String(c[0]), c[1]]));
+  const canalDe = sold => (cad.get(sold) || {}).canal || CA_SEM_CANAL;
+
+  const PERS = ['mesAt','mesAA','ytdAt','ytdAA','mesAAc'];
+  const novo = () => ({mesAt:0, mesAA:0, ytdAt:0, ytdAA:0, mesAAc:0});
+  const novoCob = () => ({mesAt:new Set(), mesAA:new Set(), ytdAt:new Set(), ytdAA:new Set()});
+  const porCat = new Map(), cobCat = new Map(), cobTot = novoCob(), total = novo(), porCli = new Map();
+  const cliDe = (sold, canal) => { let k = porCli.get(sold); if(!k){ k = Object.assign(novo(), {sold, canal, setores: new Set(), catsAt: new Set(), catsAA: new Set()}); porCli.set(sold, k); } return k; };
+  for(const r of (DATA.baseVendas||[])){
+    const d = r[3]; if(!d || r[0]==null || r[1]==null) continue;
+    if(f.visao==='brn8' ? r[7]!=='BEBIDAS' : f.visao==='brn2' ? r[7]==='BEBIDAS' : false) continue;
+    const setor = String(r[1]); if(f.setor && setor!==f.setor) continue;
+    const sold = String(r[0]), canal = canalDe(sold); if(f.canal && canal!==f.canal) continue;
+    // Garoto: grupo GAROTO da planilha de vendas; a categoria é a FAMÍLIA do produto.
+    if(r[5]!=='GAROTO') continue; const cat = r[6]; if(!cat) continue;
+    const fat = Number(r[9])||0, par = sold + '|' + setor;
+    for(const per of PERS){
+      if(d < P[per][0] || d > P[per][1]) continue;
+      let c = porCat.get(cat); if(!c){ c = novo(); porCat.set(cat, c); cobCat.set(cat, novoCob()); }
+      c[per] += fat; total[per] += fat;
+      if(per!=='mesAAc' && fat>0){ cobCat.get(cat)[per].add(par); cobTot[per].add(par); }
+      if(!f.cat || f.cat===cat){
+        const k = cliDe(sold, canal); k[per] += fat; k.setores.add(setor);
+        if(per==='mesAt' && fat>0) k.catsAt.add(cat);
+        if(per==='mesAA' && fat>0) k.catsAA.add(cat);
+      }
+    }
+  }
+  // Clientes da carteira entram na visão por cliente mesmo sem compra.
+  carteira.forEach(c => {
+    if(f.setor && c.setor!==f.setor) return;
+    const canal = canalDe(c.sold); if(f.canal && canal!==f.canal) return;
+    const k = cliDe(c.sold, canal); k.setores.add(c.setor); k.naBase = true;
+  });
+  porCli.forEach(k => { k.razao = (cad.get(k.sold)||{}).razao || razoes.get(k.sold) || ''; });
+  // Ordem da planilha do Garoto; famílias que não estão nela vão depois, por faturamento.
+  const ordem = c => { const i = GAR_ORDEM.indexOf(c); return i<0 ? 999 : i; };
+  const cats = [...porCat.keys()].sort((a, b) => ordem(a) - ordem(b) || porCat.get(b).ytdAt - porCat.get(a).ytdAt || a.localeCompare(b, 'pt-BR'));
+  return {P, parcial, ano, mes, uteis, corridos, restantes: Math.max(0, uteis - corridos), cats, porCat, cobCat, cobTot, total, clientes: [...porCli.values()]};
+}
+// Tendência × mês do ano anterior completo: ✓ ≥ 100%, ● de 90% a 100%, ▼ abaixo de 90%.
+function garFmtTend(v){
+  if(v==null) return '—';
+  const [ic, cls] = v>=1 ? ['✓', 'gar-ic-ok'] : v>=0.9 ? ['●', 'gar-ic-mid'] : ['▼', 'gar-ic-low'];
+  return `<span class="ct-ic ${cls}">${ic}</span> ${fmtPct(v)}`;
+}
+
+function renderGaroto(){
+  const wrap = document.getElementById('gar-wrap');
+  if(!wrap) return;
+  const hint = document.getElementById('gar-hint');
+  if(!(DATA.baseVendas||[]).length){ wrap.style.display = 'none'; hint.style.display = ''; hint.textContent = 'Envie a planilha de Vendas para ver a análise Garoto.'; return; }
+  wrap.style.display = ''; hint.style.display = 'none';
+  const opc = (id, lista, rotulo, vazio) => {
+    const el = document.getElementById(id), atual = el.value;
+    el.innerHTML = `<option value="">${vazio || '(Todos)'}</option>` + lista.map(v => `<option value="${esc(v)}">${esc(rotulo ? rotulo(v) : v)}</option>`).join('');
+    el.value = lista.includes(atual) ? atual : '';
+  };
+  opc('gar-setor', crSetores(), scVendedorLabel);
+  opc('gar-canal', [...new Set(scDados().carteira.map(c => c.canal).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')).concat([CA_SEM_CANAL]));
+
+  let f = garLerFiltros(), res = garCalcular(f);
+  // Lista de categorias do filtro da visão por cliente = as da visão escolhida.
+  const catAntes = f.cat;
+  opc('gar-cli-cat', res.cats, null, 'Todas as categorias');
+  if(document.getElementById('gar-cli-cat').value !== catAntes){ f = garLerFiltros(); res = garCalcular(f); }
+  const t = res.total;
+
+  document.getElementById('gar-info').textContent =
+    `${CA_VISOES[f.visao]} · mês: ${fmtDateBR(parseDateOnly(res.P.mesAt[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAt[1]))}` +
+    ` × ${fmtDateBR(parseDateOnly(res.P.mesAA[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAA[1]))}` +
+    ` · YTD até ${fmtDateBR(parseDateOnly(res.P.ytdAt[1]))} × até ${fmtDateBR(parseDateOnly(res.P.ytdAA[1]))}` +
+    (res.parcial ? ' · mês em andamento: o ano anterior vai até o mesmo dia' : '');
+  const tend = res.corridos ? t.mesAt / res.corridos * res.uteis : null;
+  renderKPIs('kpi-gar', [
+    {label: 'Dias úteis do mês', value: fmtInt(res.uteis), note: fmtInt(res.corridos) + ' corridos · ' + fmtInt(res.restantes) + ' restantes'},
+    {label: 'Faturamento YTD ano atual', value: fmtBRL0(t.ytdAt), note: 'YTD ano anterior: ' + fmtBRL0(t.ytdAA) + ' · ' + (caCresc(t.ytdAt, t.ytdAA)==null ? '—' : (caCresc(t.ytdAt, t.ytdAA)>0?'+':'') + fmtPct(caCresc(t.ytdAt, t.ytdAA))),
+      tone: caCresc(t.ytdAt, t.ytdAA)==null ? '' : caCresc(t.ytdAt, t.ytdAA)<0 ? 'critical' : 'good'},
+    {label: 'Faturamento mês atual', value: fmtBRL0(t.mesAt), note: 'Mesmo mês ano anterior: ' + fmtBRL0(t.mesAA) + ' · ' + (caCresc(t.mesAt, t.mesAA)==null ? '—' : (caCresc(t.mesAt, t.mesAA)>0?'+':'') + fmtPct(caCresc(t.mesAt, t.mesAA))),
+      tone: caCresc(t.mesAt, t.mesAA)==null ? '' : caCresc(t.mesAt, t.mesAA)<0 ? 'critical' : 'good'},
+    {label: 'Tendência do mês', value: fmtBRL0(tend), note: t.mesAAc>0 && tend!=null ? fmtPct(tend/t.mesAAc) + ' do mês ano anterior completo (' + fmtBRL0(t.mesAAc) + ')' : '—',
+      tone: t.mesAAc>0 && tend!=null ? (tend>=t.mesAAc ? 'good' : tend/t.mesAAc<0.9 ? 'critical' : '') : ''},
+    {label: 'Cobertura mês atual', value: fmtInt(res.cobTot.mesAt.size), note: 'clientes × vendedor · mesmo mês ano anterior: ' + fmtInt(res.cobTot.mesAA.size)},
+  ]);
+
+  const brl = v => fmtBRL0(v), pct = v => v==null ? '—' : fmtPct(v), cat = v => v==='Total geral' || v==='Média das categorias' || v==='Clientes únicos' ? `<b>${esc(v)}</b>` : crCatTag(v);
+  const rep = (v, tot) => tot>0 ? v/tot : null;
+  const L = res.cats.map(c => { const x = res.porCat.get(c); return Object.assign({cat: c}, x, {
+    crescYtd: caCresc(x.ytdAt, x.ytdAA), repYtd: rep(x.ytdAt, t.ytdAt), crescMes: caCresc(x.mesAt, x.mesAA), repMes: rep(x.mesAt, t.mesAt),
+    tend: res.corridos ? x.mesAt/res.corridos*res.uteis : null, tendPct: res.corridos && x.mesAAc>0 ? (x.mesAt/res.corridos*res.uteis)/x.mesAAc : null}); });
+  const tot = {cat: 'Total geral', ytdAA: t.ytdAA, ytdAt: t.ytdAt, crescYtd: caCresc(t.ytdAt, t.ytdAA), repYtd: t.ytdAt ? 1 : null,
+    mesAA: t.mesAA, mesAt: t.mesAt, crescMes: caCresc(t.mesAt, t.mesAA), repMes: t.mesAt ? 1 : null, tend, tendPct: t.mesAAc>0 && tend!=null ? tend/t.mesAAc : null};
+  crTabela('table-gar-fat-ytd', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'ytdAA', label:'YTD ano anterior', align:'right', format: brl}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: brl},
+    {key:'crescYtd', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'repYtd', label:'Rep %', align:'right', format: pct},
+  ], L, tot);
+  crTabela('table-gar-fat-mes', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'mesAA', label:'Mesmo mês ano anterior', align:'right', format: brl}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: brl},
+    {key:'crescMes', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'repMes', label:'Rep %', align:'right', format: pct},
+    {key:'tend', label:'Tendência', align:'right', cls:'ca-col-obj', format: brl}, {key:'tendPct', label:'% × mês ano ant.', align:'right', cls:'ca-col-obj', format: garFmtTend},
+  ], L, tot);
+
+  // Cobertura: pares cliente × vendedor que compraram a categoria. "Média das categorias" é a
+  // conta da planilha (média da coluna); "Clientes únicos" conta cada par uma vez só.
+  const C = res.cats.map(c => { const x = res.cobCat.get(c); return {cat: c, ytdAA: x.ytdAA.size, ytdAt: x.ytdAt.size, mesAA: x.mesAA.size, mesAt: x.mesAt.size}; });
+  C.forEach(x => { x.crescYtd = caCresc(x.ytdAt, x.ytdAA); x.crescMes = caCresc(x.mesAt, x.mesAA); });
+  // Média das famílias (como a linha de total da cobertura na planilha).
+  const CM = C;
+  const media = k => CM.length ? CM.reduce((s, x) => s + x[k], 0) / CM.length : 0;
+  const med = {cat: 'Média das categorias', ytdAA: media('ytdAA'), ytdAt: media('ytdAt'), mesAA: media('mesAA'), mesAt: media('mesAt')};
+  med.crescYtd = caCresc(med.ytdAt, med.ytdAA); med.crescMes = caCresc(med.mesAt, med.mesAA);
+  const uni = {cat: 'Clientes únicos', ytdAA: res.cobTot.ytdAA.size, ytdAt: res.cobTot.ytdAt.size, mesAA: res.cobTot.mesAA.size, mesAt: res.cobTot.mesAt.size};
+  uni.crescYtd = caCresc(uni.ytdAt, uni.ytdAA); uni.crescMes = caCresc(uni.mesAt, uni.mesAA);
+  crTabela('table-gar-cob-ytd', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'ytdAA', label:'YTD ano anterior', align:'right', format: fmtInt}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    {key:'crescYtd', label:'Cresc./Qued. %', align:'right', format: caFmtCresc},
+  ], C, [med, uni]);
+  crTabela('table-gar-cob-mes', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'mesAA', label:'Mesmo mês ano anterior', align:'right', format: fmtInt}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    {key:'crescMes', label:'Cresc./Qued. %', align:'right', format: caFmtCresc},
+  ], C, [med, uni]);
+
+  // Visão por cliente
+  const clientes = res.clientes.filter(k => k.mesAt || k.mesAA || k.ytdAt || k.ytdAA || k.naBase).filter(k =>
+    !f.mostrar ? true : f.mostrar==='queda' ? k.ytdAt < k.ytdAA : f.mostrar==='quedames' ? k.mesAt < k.mesAA : f.mostrar==='sem' ? (k.naBase && !k.mesAt) : true);
+  document.getElementById('gar-cli-sub').textContent = `${fmtInt(clientes.length)} cliente${clientes.length===1?'':'s'}` +
+    (f.cat ? ` · valores só de ${f.cat}` : ' · todas as categorias') + ' — os da carteira aparecem mesmo sem compra. Mix = nº de categorias compradas no mês.';
+  makeTable('table-gar-cli', {
+    headers: [
+      {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'canal', label:'Canal'}, {key:'setores', label:'Setor'},
+      {key:'ytdAA', label:'YTD ano anterior', align:'right', format: brl}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescYtd', label:'Cresc. YTD', align:'right', format: caFmtCresc},
+      {key:'mesAA', label:'Mesmo mês ano ant.', align:'right', format: brl}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescMes', label:'Cresc. mês', align:'right', format: caFmtCresc},
+      {key:'mixAA', label:'Mix mês ano ant.', align:'right', format: fmtInt}, {key:'mixAt', label:'Mix mês atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    ],
+    rows: clientes,
+    getRow: k => ({sold: k.sold, razao: k.razao, canal: k.canal, setores: [...k.setores].sort().join(', '),
+      ytdAA: k.ytdAA, ytdAt: k.ytdAt, crescYtd: caCresc(k.ytdAt, k.ytdAA), mesAA: k.mesAA, mesAt: k.mesAt, crescMes: caCresc(k.mesAt, k.mesAA),
+      mixAA: k.catsAA.size, mixAt: k.catsAt.size}),
+    defaultSort: {key:'ytdAt', dir:'desc'}, pageSize: 20,
+  });
+}
+function garMarcarVisao(){
+  const v = document.getElementById('gar-visao').value;
+  document.querySelectorAll('[data-gar-visao]').forEach(b => { const on = b.dataset.garVisao===v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+}
+function initGaroto(){
+  if(!document.getElementById('gar-wrap')) return;
+  document.getElementById('gar-mes').value = crMesAtualKey();
+  ['gar-mes','gar-visao','gar-setor','gar-canal','gar-cli-cat','gar-cli-mostrar'].forEach(id => document.getElementById(id).addEventListener('change', renderGaroto));
+  document.getElementById('gar-visao').addEventListener('change', garMarcarVisao);
+  document.querySelectorAll('[data-gar-visao]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById('gar-visao').value = b.dataset.garVisao; garMarcarVisao(); renderGaroto();
+  }));
+  document.getElementById('gar-reset').addEventListener('click', () => {
+    document.getElementById('gar-mes').value = crMesAtualKey();
+    ['gar-setor','gar-canal','gar-cli-cat','gar-cli-mostrar'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('gar-visao').value = 'todos'; garMarcarVisao(); renderGaroto();
+  });
+  garMarcarVisao();
+  RENDERERS.garoto = renderGaroto;
+}
+
+
+
 function init(){
   initTabs();
   initUpload();
@@ -6337,6 +6552,7 @@ function init(){
   initCanal();
   initCategoria();
   initAcumulado();
+  initGaroto();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

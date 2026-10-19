@@ -866,3 +866,10 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 .ct-ic-ok{color:var(--good-ink);}
 .ct-ic-mid{color:#C98A00;}
 .ct-ic-low{color:var(--critical-ink);}
+
+/* Análise Garoto */
+.gar-banner{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:8px 18px; margin-bottom:12px;
+  background:#FFC000; border-radius:var(--radius); border-bottom:3px solid #C00000;}
+.gar-banner .section-title{margin:0; color:#C00000; font-weight:800;}
+.gar-logo{height:48px; width:auto; display:block;}
+.gar-print-logo img{height:34px; margin-left:auto;}

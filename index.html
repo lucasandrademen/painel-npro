@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=29">
+<link rel="stylesheet" href="assets/app.css?v=30">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -958,6 +958,94 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="garoto">
+    <div class="gar-banner"><div class="section-title">Análise por Categoria — Garoto</div><img class="gar-logo" src="assets/logo-garoto.png" alt="Garoto"></div>
+    <div class="section-note">
+      Faturamento e cobertura das categorias do Garoto (família dos produtos do grupo GAROTO na planilha de vendas) no acumulado do ano (YTD) e no mês, contra o mesmo
+      período do ano anterior. <b>BRN2</b> = NPRO + Varejo; <b>BRN8</b> = Bebidas. Mês em andamento é comparado com o ano
+      anterior até o mesmo dia. Tendência = realizado do mês ÷ dias úteis corridos × dias úteis do mês (sem feriados
+      nacionais e de Sergipe), comparada com o mês do ano anterior inteiro. Cobertura = clientes × vendedor que compraram a
+      categoria no período. O Garoto é vendido pelo Varejo (BRN2), então a visão BRN8 não tem vendas. Esta aba usa os próprios filtros abaixo, não o "Período analisado" do topo.
+    </div>
+
+    <div class="ca-visoes" role="group" aria-label="Visão">
+      <button type="button" class="ca-visao-btn" data-gar-visao="todos">BRN2 + BRN8</button>
+      <button type="button" class="ca-visao-btn" data-gar-visao="brn2">BRN2 · NPRO + Varejo</button>
+      <button type="button" class="ca-visao-btn" data-gar-visao="brn8">BRN8 · Bebidas</button>
+    </div>
+    <div class="filterbar ca-filtros" id="gar-filtros">
+      <div>
+        <span class="flabel">Mês</span>
+        <input type="month" id="gar-mes" aria-label="Mês de referência">
+      </div>
+      <div>
+        <span class="flabel">Visão</span>
+        <select id="gar-visao">
+          <option value="todos">BRN2 + BRN8</option>
+          <option value="brn2">BRN2 (NPRO + Varejo)</option>
+          <option value="brn8">BRN8 (Bebidas)</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="gar-setor"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">Canal</span>
+        <select id="gar-canal"><option value="">(Todos)</option></select>
+      </div>
+      <button class="filter-reset" id="gar-reset" type="button">Limpar filtros</button>
+    </div>
+
+    <div id="gar-hint" class="mapa-empty-hint" style="display:none;"></div>
+    <div id="gar-wrap">
+      <div class="kpi-row" id="kpi-gar"></div>
+      <div class="panel-sub cr-info" id="gar-info"></div>
+      <div class="ct-grid">
+        <div class="panel">
+          <h3>Faturamento YTD</h3>
+          <div class="panel-sub">Rep % = participação da categoria no YTD do ano atual.</div>
+          <div id="table-gar-fat-ytd"></div>
+        </div>
+        <div class="panel">
+          <h3>Faturamento mensal</h3>
+          <div class="panel-sub">Tendência: ✓ ≥ 100% do mês do ano anterior inteiro · ● de 90% a 100% · ▼ abaixo de 90%.</div>
+          <div id="table-gar-fat-mes"></div>
+        </div>
+        <div class="panel">
+          <h3>Cobertura YTD</h3>
+          <div class="panel-sub">Clientes × vendedor que compraram a categoria no ano. "Média das categorias" é a conta da planilha; "Clientes únicos" conta cada um uma vez.</div>
+          <div id="table-gar-cob-ytd"></div>
+        </div>
+        <div class="panel">
+          <h3>Cobertura mensal</h3>
+          <div class="panel-sub">Clientes × vendedor que compraram a categoria no mês.</div>
+          <div id="table-gar-cob-mes"></div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Visão por cliente</h3>
+        <div class="panel-sub" id="gar-cli-sub"></div>
+        <div class="mapa-lookup cr-cli-filtros">
+          <div>
+            <span class="flabel">Categoria</span>
+            <select id="gar-cli-cat"><option value="">Todas as categorias</option></select>
+          </div>
+          <div>
+            <span class="flabel">Mostrar</span>
+            <select id="gar-cli-mostrar">
+              <option value="">Todos os clientes</option>
+              <option value="queda">Em queda no YTD</option>
+              <option value="quedames">Em queda no mês</option>
+              <option value="sem">Da carteira sem compra no mês</option>
+            </select>
+          </div>
+        </div>
+        <div id="table-gar-cli"></div>
+      </div>
+    </div>
+  </section>
+
   <section class="tabpanel" data-tab="acumulado">
     <div class="section-title">Acumulado até o mês passado</div>
     <div class="section-note">
@@ -1044,6 +1132,6 @@
 </div>
 
 
-<script src="assets/app.js?v=61" defer></script>
+<script src="assets/app.js?v=62" defer></script>
 </body>
 </html>
