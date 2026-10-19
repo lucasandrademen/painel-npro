@@ -847,7 +847,7 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
   border:1px solid var(--border-strong); border-radius:999px; padding:7px 16px; cursor:pointer;}
 .ca-visao-btn:hover{border-color:var(--accent-2); background:var(--surface-2);}
 .ca-visao-btn.active{background:var(--accent); border-color:var(--accent); color:#fff;}
-#ca-filtros input[type="month"], #ca-filtros input[type="number"]{
+.ca-filtros input[type="month"], .ca-filtros input[type="number"]{
   font-family:var(--font-body); font-size:12.5px; color:var(--text); background:var(--surface);
   border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:7px 9px; width:100%; box-sizing:border-box;}
 .ca-neg{color:var(--critical-ink); font-weight:700;}
@@ -856,3 +856,13 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 #table-ca-canal .ca-col-obj{background:color-mix(in srgb, #E0A100 10%, transparent);}
 #table-ca-canal .ca-col-cob{background:color-mix(in srgb, var(--good-ink) 8%, transparent);}
 #table-ca-canal td, #table-ca-canal th{white-space:nowrap;}
+
+/* Análise por Categoria */
+.ct-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap:14px;}
+.ct-grid td, .ct-grid th, #table-ct-cli td{white-space:nowrap;}
+.ct-grid .ca-col-at{background:color-mix(in srgb, var(--accent) 7%, transparent);}
+.ct-grid .ca-col-obj{background:color-mix(in srgb, #E0A100 10%, transparent);}
+.ct-ic{display:inline-block; width:1.1em; text-align:center; font-weight:700;}
+.ct-ic-ok{color:var(--good-ink);}
+.ct-ic-mid{color:#C98A00;}
+.ct-ic-low{color:var(--critical-ink);}

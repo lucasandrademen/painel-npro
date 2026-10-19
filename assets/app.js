@@ -96,6 +96,7 @@ const TABS = [
   {id:"brasileirao", label:"Brasileirão"},
   {id:"agenda", label:"Agenda Culinaristas"},
   {id:"canal", label:"Análise por Canal"},
+  {id:"categoria", label:"Análise por Categoria"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2917,6 +2918,18 @@ const PRINT_CONFIG = {
       if(f.setor) chips.push(['Setor', scVendedorLabel(f.setor)]);
       if(f.canal) chips.push(['Canal', f.canal]);
       if(f.tipo) chips.push(['CPF/CNPJ', f.tipo]);
+      return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
+    },
+  },
+  categoria: {
+    title:'Análise por Categoria', orientation:'landscape', kpi:'kpi-ct', blocks:[], hideFilters:true,
+    tables:[{id:'table-ct-fat-ytd', title:'Faturamento YTD'}, {id:'table-ct-fat-mes', title:'Faturamento mensal'},
+      {id:'table-ct-cob-ytd', title:'Cobertura YTD'}, {id:'table-ct-cob-mes', title:'Cobertura mensal'}, {id:'table-ct-cli', title:'Visão por cliente'}],
+    periodLabel: () => document.getElementById('ct-info').textContent,
+    headerExtra: () => {
+      const f = ctLerFiltros();
+      const chips = [['Visão', CA_VISOES[f.visao]], ['Mês', f.mes.slice(5,7) + '/' + f.mes.slice(0,4)], ['Setor', f.setor ? scVendedorLabel(f.setor) : '(Todos)']];
+      if(f.canal) chips.push(['Canal', f.canal]);
       return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
     },
   },
@@ -5930,6 +5943,209 @@ function caMarcarVisao(){
   document.querySelectorAll('[data-ca-visao]').forEach(b => { const on = b.dataset.caVisao===v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
 }
 
+/* ============================================================================
+   ANÁLISE POR CATEGORIA — BRN2 (NPRO + Varejo) e BRN8 (Bebidas), por categoria e por cliente
+   ============================================================================
+   Réplica da planilha "ANÁLISE POR CATEGORIA": faturamento YTD e do mês contra o
+   mesmo período do ano anterior, representatividade, tendência do mês (realizado ÷
+   dias úteis corridos × dias úteis do mês, sem feriados nacionais e de Sergipe) e
+   cobertura (pares cliente × vendedor que compraram a categoria no período).
+   Categoria = GRUPO da planilha de vendas. Mês em andamento é comparado com o ano
+   anterior até o mesmo dia; a tendência é comparada com o mês do ano anterior inteiro. */
+const CT_SEM_GRUPO = 'Produto Sem Grupo';
+function ctEhNP(cat){ return /^[0-9]{2}-NP? /.test(cat); }
+function ctLerFiltros(){
+  const v = id => document.getElementById(id).value;
+  return {mes: v('ct-mes') || crMesAtualKey(), visao: v('ct-visao') || 'todos', setor: v('ct-setor'), canal: v('ct-canal'),
+    cat: v('ct-cli-cat'), mostrar: v('ct-cli-mostrar')};
+}
+function ctCalcular(f){
+  const [ano, mes] = f.mes.split('-').map(Number);
+  const fimMes = Date.UTC(ano, mes, 0), ultISO = caUltimaVendaISO();
+  const ateMs = ultISO ? Math.max(Date.UTC(ano, mes-1, 1), Math.min(fimMes, parseDateOnly(ultISO))) : fimMes;
+  const parcial = ateMs < fimMes, dia = new Date(ateMs).getUTCDate();
+  const ateAAms = Date.UTC(ano-1, mes-1, Math.min(dia, new Date(Date.UTC(ano-1, mes, 0)).getUTCDate()));
+  const iso = ms => fmtDateOnly(ms);
+  const P = {
+    mesAt: [iso(Date.UTC(ano, mes-1, 1)), iso(ateMs)], mesAA: [iso(Date.UTC(ano-1, mes-1, 1)), iso(ateAAms)],
+    ytdAt: [iso(Date.UTC(ano, 0, 1)), iso(ateMs)], ytdAA: [iso(Date.UTC(ano-1, 0, 1)), iso(ateAAms)],
+    mesAAc: [iso(Date.UTC(ano-1, mes-1, 1)), iso(Date.UTC(ano-1, mes, 0))],
+  };
+  // Dias úteis do mês e corridos até o último dia com venda (para a tendência).
+  const fer = crFeriadosDoMes(f.mes);
+  const util = ms => scDiaSemana(ms)<=5 && !fer.has(fmtDateOnly(ms));
+  let uteis = 0, corridos = 0;
+  for(let ms = Date.UTC(ano, mes-1, 1); ms <= fimMes; ms += SC_DIA_MS){ if(util(ms)){ uteis++; if(ms <= ateMs) corridos++; } }
+
+  const {carteira} = scDados();
+  const cad = new Map();
+  carteira.forEach(c => { const o = cad.get(c.sold); if(!o) cad.set(c.sold, {razao: c.razao, canal: c.canal || null}); else if(!o.canal && c.canal) o.canal = c.canal; });
+  const razoes = new Map((DATA.clientes||[]).map(c => [String(c[0]), c[1]]));
+  const canalDe = sold => (cad.get(sold) || {}).canal || CA_SEM_CANAL;
+
+  const PERS = ['mesAt','mesAA','ytdAt','ytdAA','mesAAc'];
+  const novo = () => ({mesAt:0, mesAA:0, ytdAt:0, ytdAA:0, mesAAc:0});
+  const novoCob = () => ({mesAt:new Set(), mesAA:new Set(), ytdAt:new Set(), ytdAA:new Set()});
+  const porCat = new Map(), cobCat = new Map(), cobTot = novoCob(), total = novo(), porCli = new Map();
+  const cliDe = (sold, canal) => { let k = porCli.get(sold); if(!k){ k = Object.assign(novo(), {sold, canal, setores: new Set(), catsAt: new Set(), catsAA: new Set()}); porCli.set(sold, k); } return k; };
+  for(const r of (DATA.baseVendas||[])){
+    const d = r[3]; if(!d || r[0]==null || r[1]==null) continue;
+    if(f.visao==='brn8' ? r[7]!=='BEBIDAS' : f.visao==='brn2' ? r[7]==='BEBIDAS' : false) continue;
+    const setor = String(r[1]); if(f.setor && setor!==f.setor) continue;
+    const sold = String(r[0]), canal = canalDe(sold); if(f.canal && canal!==f.canal) continue;
+    const cat = r[5] || CT_SEM_GRUPO, fat = Number(r[9])||0, par = sold + '|' + setor;
+    for(const per of PERS){
+      if(d < P[per][0] || d > P[per][1]) continue;
+      let c = porCat.get(cat); if(!c){ c = novo(); porCat.set(cat, c); cobCat.set(cat, novoCob()); }
+      c[per] += fat; total[per] += fat;
+      if(per!=='mesAAc' && fat>0){ cobCat.get(cat)[per].add(par); cobTot[per].add(par); }
+      if(!f.cat || f.cat===cat){
+        const k = cliDe(sold, canal); k[per] += fat; k.setores.add(setor);
+        if(per==='mesAt' && fat>0) k.catsAt.add(cat);
+        if(per==='mesAA' && fat>0) k.catsAA.add(cat);
+      }
+    }
+  }
+  // Clientes da carteira entram na visão por cliente mesmo sem compra.
+  carteira.forEach(c => {
+    if(f.setor && c.setor!==f.setor) return;
+    const canal = canalDe(c.sold); if(f.canal && canal!==f.canal) return;
+    const k = cliDe(c.sold, canal); k.setores.add(c.setor); k.naBase = true;
+  });
+  porCli.forEach(k => { k.razao = (cad.get(k.sold)||{}).razao || razoes.get(k.sold) || ''; });
+  // Ordem: categorias Nestlé Professional (01-NP…07-NP) primeiro, depois as do Varejo, 'Produto Sem Grupo' por último.
+  const ordem = c => c===CT_SEM_GRUPO ? 2 : ctEhNP(c) ? 0 : 1;
+  const cats = [...porCat.keys()].sort((a, b) => ordem(a) - ordem(b) || porCat.get(b).ytdAt - porCat.get(a).ytdAt || a.localeCompare(b, 'pt-BR'));
+  return {P, parcial, ano, mes, uteis, corridos, restantes: Math.max(0, uteis - corridos), cats, porCat, cobCat, cobTot, total, clientes: [...porCli.values()]};
+}
+// Tendência × mês do ano anterior completo: ✓ ≥ 100%, ● de 90% a 100%, ▼ abaixo de 90%.
+function ctFmtTend(v){
+  if(v==null) return '—';
+  const [ic, cls] = v>=1 ? ['✓', 'ct-ic-ok'] : v>=0.9 ? ['●', 'ct-ic-mid'] : ['▼', 'ct-ic-low'];
+  return `<span class="ct-ic ${cls}">${ic}</span> ${fmtPct(v)}`;
+}
+
+function renderCategoria(){
+  const wrap = document.getElementById('ct-wrap');
+  if(!wrap) return;
+  const hint = document.getElementById('ct-hint');
+  if(!(DATA.baseVendas||[]).length){ wrap.style.display = 'none'; hint.style.display = ''; hint.textContent = 'Envie a planilha de Vendas para ver a análise por categoria.'; return; }
+  wrap.style.display = ''; hint.style.display = 'none';
+  const opc = (id, lista, rotulo, vazio) => {
+    const el = document.getElementById(id), atual = el.value;
+    el.innerHTML = `<option value="">${vazio || '(Todos)'}</option>` + lista.map(v => `<option value="${esc(v)}">${esc(rotulo ? rotulo(v) : v)}</option>`).join('');
+    el.value = lista.includes(atual) ? atual : '';
+  };
+  opc('ct-setor', crSetores(), scVendedorLabel);
+  opc('ct-canal', [...new Set(scDados().carteira.map(c => c.canal).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')).concat([CA_SEM_CANAL]));
+
+  let f = ctLerFiltros(), res = ctCalcular(f);
+  // Lista de categorias do filtro da visão por cliente = as da visão escolhida.
+  const catAntes = f.cat;
+  opc('ct-cli-cat', res.cats, null, 'Todas as categorias');
+  if(document.getElementById('ct-cli-cat').value !== catAntes){ f = ctLerFiltros(); res = ctCalcular(f); }
+  const t = res.total;
+
+  document.getElementById('ct-info').textContent =
+    `${CA_VISOES[f.visao]} · mês: ${fmtDateBR(parseDateOnly(res.P.mesAt[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAt[1]))}` +
+    ` × ${fmtDateBR(parseDateOnly(res.P.mesAA[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAA[1]))}` +
+    ` · YTD até ${fmtDateBR(parseDateOnly(res.P.ytdAt[1]))} × até ${fmtDateBR(parseDateOnly(res.P.ytdAA[1]))}` +
+    (res.parcial ? ' · mês em andamento: o ano anterior vai até o mesmo dia' : '');
+  const tend = res.corridos ? t.mesAt / res.corridos * res.uteis : null;
+  renderKPIs('kpi-ct', [
+    {label: 'Dias úteis do mês', value: fmtInt(res.uteis), note: fmtInt(res.corridos) + ' corridos · ' + fmtInt(res.restantes) + ' restantes'},
+    {label: 'Faturamento YTD ano atual', value: fmtBRL0(t.ytdAt), note: 'YTD ano anterior: ' + fmtBRL0(t.ytdAA) + ' · ' + (caCresc(t.ytdAt, t.ytdAA)==null ? '—' : (caCresc(t.ytdAt, t.ytdAA)>0?'+':'') + fmtPct(caCresc(t.ytdAt, t.ytdAA))),
+      tone: caCresc(t.ytdAt, t.ytdAA)==null ? '' : caCresc(t.ytdAt, t.ytdAA)<0 ? 'critical' : 'good'},
+    {label: 'Faturamento mês atual', value: fmtBRL0(t.mesAt), note: 'Mesmo mês ano anterior: ' + fmtBRL0(t.mesAA) + ' · ' + (caCresc(t.mesAt, t.mesAA)==null ? '—' : (caCresc(t.mesAt, t.mesAA)>0?'+':'') + fmtPct(caCresc(t.mesAt, t.mesAA))),
+      tone: caCresc(t.mesAt, t.mesAA)==null ? '' : caCresc(t.mesAt, t.mesAA)<0 ? 'critical' : 'good'},
+    {label: 'Tendência do mês', value: fmtBRL0(tend), note: t.mesAAc>0 && tend!=null ? fmtPct(tend/t.mesAAc) + ' do mês ano anterior completo (' + fmtBRL0(t.mesAAc) + ')' : '—',
+      tone: t.mesAAc>0 && tend!=null ? (tend>=t.mesAAc ? 'good' : tend/t.mesAAc<0.9 ? 'critical' : '') : ''},
+    {label: 'Cobertura mês atual', value: fmtInt(res.cobTot.mesAt.size), note: 'clientes × vendedor · mesmo mês ano anterior: ' + fmtInt(res.cobTot.mesAA.size)},
+  ]);
+
+  const brl = v => fmtBRL0(v), pct = v => v==null ? '—' : fmtPct(v), cat = v => v==='Total geral' || v==='Média das categorias' || v==='Clientes únicos' ? `<b>${esc(v)}</b>` : crCatTag(v);
+  const rep = (v, tot) => tot>0 ? v/tot : null;
+  const L = res.cats.map(c => { const x = res.porCat.get(c); return Object.assign({cat: c}, x, {
+    crescYtd: caCresc(x.ytdAt, x.ytdAA), repYtd: rep(x.ytdAt, t.ytdAt), crescMes: caCresc(x.mesAt, x.mesAA), repMes: rep(x.mesAt, t.mesAt),
+    tend: res.corridos ? x.mesAt/res.corridos*res.uteis : null, tendPct: res.corridos && x.mesAAc>0 ? (x.mesAt/res.corridos*res.uteis)/x.mesAAc : null}); });
+  const tot = {cat: 'Total geral', ytdAA: t.ytdAA, ytdAt: t.ytdAt, crescYtd: caCresc(t.ytdAt, t.ytdAA), repYtd: t.ytdAt ? 1 : null,
+    mesAA: t.mesAA, mesAt: t.mesAt, crescMes: caCresc(t.mesAt, t.mesAA), repMes: t.mesAt ? 1 : null, tend, tendPct: t.mesAAc>0 && tend!=null ? tend/t.mesAAc : null};
+  crTabela('table-ct-fat-ytd', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'ytdAA', label:'YTD ano anterior', align:'right', format: brl}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: brl},
+    {key:'crescYtd', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'repYtd', label:'Rep %', align:'right', format: pct},
+  ], L, tot);
+  crTabela('table-ct-fat-mes', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'mesAA', label:'Mesmo mês ano anterior', align:'right', format: brl}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: brl},
+    {key:'crescMes', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'repMes', label:'Rep %', align:'right', format: pct},
+    {key:'tend', label:'Tendência', align:'right', cls:'ca-col-obj', format: brl}, {key:'tendPct', label:'% × mês ano ant.', align:'right', cls:'ca-col-obj', format: ctFmtTend},
+  ], L, tot);
+
+  // Cobertura: pares cliente × vendedor que compraram a categoria. "Média das categorias" é a
+  // conta da planilha (média da coluna); "Clientes únicos" conta cada par uma vez só.
+  const C = res.cats.map(c => { const x = res.cobCat.get(c); return {cat: c, ytdAA: x.ytdAA.size, ytdAt: x.ytdAt.size, mesAA: x.mesAA.size, mesAt: x.mesAt.size}; });
+  C.forEach(x => { x.crescYtd = caCresc(x.ytdAt, x.ytdAA); x.crescMes = caCresc(x.mesAt, x.mesAA); });
+  // Como na planilha: média das categorias NP (+ Produto Sem Grupo); sem nenhuma NP na visão, de todas.
+  const CM = C.some(x => ctEhNP(x.cat)) ? C.filter(x => ctEhNP(x.cat) || x.cat===CT_SEM_GRUPO) : C;
+  const media = k => CM.length ? CM.reduce((s, x) => s + x[k], 0) / CM.length : 0;
+  const med = {cat: 'Média das categorias', ytdAA: media('ytdAA'), ytdAt: media('ytdAt'), mesAA: media('mesAA'), mesAt: media('mesAt')};
+  med.crescYtd = caCresc(med.ytdAt, med.ytdAA); med.crescMes = caCresc(med.mesAt, med.mesAA);
+  const uni = {cat: 'Clientes únicos', ytdAA: res.cobTot.ytdAA.size, ytdAt: res.cobTot.ytdAt.size, mesAA: res.cobTot.mesAA.size, mesAt: res.cobTot.mesAt.size};
+  uni.crescYtd = caCresc(uni.ytdAt, uni.ytdAA); uni.crescMes = caCresc(uni.mesAt, uni.mesAA);
+  crTabela('table-ct-cob-ytd', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'ytdAA', label:'YTD ano anterior', align:'right', format: fmtInt}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    {key:'crescYtd', label:'Cresc./Qued. %', align:'right', format: caFmtCresc},
+  ], C, [med, uni]);
+  crTabela('table-ct-cob-mes', [
+    {key:'cat', label:'Categoria', format: cat},
+    {key:'mesAA', label:'Mesmo mês ano anterior', align:'right', format: fmtInt}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    {key:'crescMes', label:'Cresc./Qued. %', align:'right', format: caFmtCresc},
+  ], C, [med, uni]);
+
+  // Visão por cliente
+  const clientes = res.clientes.filter(k => k.mesAt || k.mesAA || k.ytdAt || k.ytdAA || k.naBase).filter(k =>
+    !f.mostrar ? true : f.mostrar==='queda' ? k.ytdAt < k.ytdAA : f.mostrar==='quedames' ? k.mesAt < k.mesAA : f.mostrar==='sem' ? (k.naBase && !k.mesAt) : true);
+  document.getElementById('ct-cli-sub').textContent = `${fmtInt(clientes.length)} cliente${clientes.length===1?'':'s'}` +
+    (f.cat ? ` · valores só de ${f.cat}` : ' · todas as categorias') + ' — os da carteira aparecem mesmo sem compra. Mix = nº de categorias compradas no mês.';
+  makeTable('table-ct-cli', {
+    headers: [
+      {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'canal', label:'Canal'}, {key:'setores', label:'Setor'},
+      {key:'ytdAA', label:'YTD ano anterior', align:'right', format: brl}, {key:'ytdAt', label:'YTD ano atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescYtd', label:'Cresc. YTD', align:'right', format: caFmtCresc},
+      {key:'mesAA', label:'Mesmo mês ano ant.', align:'right', format: brl}, {key:'mesAt', label:'Mês atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'crescMes', label:'Cresc. mês', align:'right', format: caFmtCresc},
+      {key:'mixAA', label:'Mix mês ano ant.', align:'right', format: fmtInt}, {key:'mixAt', label:'Mix mês atual', align:'right', cls:'ca-col-at', format: fmtInt},
+    ],
+    rows: clientes,
+    getRow: k => ({sold: k.sold, razao: k.razao, canal: k.canal, setores: [...k.setores].sort().join(', '),
+      ytdAA: k.ytdAA, ytdAt: k.ytdAt, crescYtd: caCresc(k.ytdAt, k.ytdAA), mesAA: k.mesAA, mesAt: k.mesAt, crescMes: caCresc(k.mesAt, k.mesAA),
+      mixAA: k.catsAA.size, mixAt: k.catsAt.size}),
+    defaultSort: {key:'ytdAt', dir:'desc'}, pageSize: 20,
+  });
+}
+function ctMarcarVisao(){
+  const v = document.getElementById('ct-visao').value;
+  document.querySelectorAll('[data-ct-visao]').forEach(b => { const on = b.dataset.ctVisao===v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+}
+function initCategoria(){
+  if(!document.getElementById('ct-wrap')) return;
+  document.getElementById('ct-mes').value = crMesAtualKey();
+  ['ct-mes','ct-visao','ct-setor','ct-canal','ct-cli-cat','ct-cli-mostrar'].forEach(id => document.getElementById(id).addEventListener('change', renderCategoria));
+  document.getElementById('ct-visao').addEventListener('change', ctMarcarVisao);
+  document.querySelectorAll('[data-ct-visao]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById('ct-visao').value = b.dataset.ctVisao; ctMarcarVisao(); renderCategoria();
+  }));
+  document.getElementById('ct-reset').addEventListener('click', () => {
+    document.getElementById('ct-mes').value = crMesAtualKey();
+    ['ct-setor','ct-canal','ct-cli-cat','ct-cli-mostrar'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('ct-visao').value = 'todos'; ctMarcarVisao(); renderCategoria();
+  });
+  ctMarcarVisao();
+  RENDERERS.categoria = renderCategoria;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -5950,6 +6166,7 @@ function init(){
   initBrasileirao();
   initAgenda();
   initCanal();
+  initCategoria();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();
