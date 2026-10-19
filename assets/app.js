@@ -5837,8 +5837,9 @@ function renderCanal(){
   opc('ca-canal', canaisCad.concat([CA_SEM_CANAL]));
 
   const f = caLerFiltros(), res = caCalcular(f), t = res.total;
-  const mAt = CA_MESES[res.mes-1] + '/' + res.ano, mAA = CA_MESES[res.mes-1] + '/' + (res.ano-1);
-  const yAt = 'YTD ' + res.ano, yAA = 'YTD ' + (res.ano-1);
+  // Cabeçalhos sem o nome do mês/ano (a pedido do usuário): as datas exatas ficam na linha de informação.
+  const mAt = 'Mês atual', mAA = 'Mesmo mês ano anterior';
+  const yAt = 'YTD ano atual', yAA = 'YTD ano anterior';
   const objLbl = 'Obj. cresc. (' + fmtPct(f.obj).replace(',0%', '%') + ')';
   document.getElementById('ca-info').textContent =
     `${CA_VISOES[f.visao]} · mês: ${fmtDateBR(parseDateOnly(res.P.mesAt[0]))} a ${fmtDateBR(parseDateOnly(res.P.mesAt[1]))}` +
@@ -5848,13 +5849,13 @@ function renderCanal(){
 
   const objTot = t.ytdAA * (1 + f.obj);
   renderKPIs('kpi-ca', [
-    {label: 'Faturamento ' + mAt, value: fmtBRL0(t.mesAt), note: mAA + ': ' + fmtBRL0(t.mesAA) + ' · ' + (caCresc(t.mesAt, t.mesAA)==null ? '—' : (caCresc(t.mesAt, t.mesAA)>0?'+':'') + fmtPct(caCresc(t.mesAt, t.mesAA))),
+    {label: 'Faturamento ' + mAt.toLowerCase(), value: fmtBRL0(t.mesAt), note: mAA + ': ' + fmtBRL0(t.mesAA) + ' · ' + (caCresc(t.mesAt, t.mesAA)==null ? '—' : (caCresc(t.mesAt, t.mesAA)>0?'+':'') + fmtPct(caCresc(t.mesAt, t.mesAA))),
       tone: caCresc(t.mesAt, t.mesAA)==null ? '' : caCresc(t.mesAt, t.mesAA)<0 ? 'critical' : 'good'},
-    {label: 'Faturamento ' + yAt, value: fmtBRL0(t.ytdAt), note: yAA + ': ' + fmtBRL0(t.ytdAA) + ' · ' + (caCresc(t.ytdAt, t.ytdAA)==null ? '—' : (caCresc(t.ytdAt, t.ytdAA)>0?'+':'') + fmtPct(caCresc(t.ytdAt, t.ytdAA))),
+    {label: 'Faturamento ' + yAt.replace('YTD a', 'YTD — a'), value: fmtBRL0(t.ytdAt), note: yAA + ': ' + fmtBRL0(t.ytdAA) + ' · ' + (caCresc(t.ytdAt, t.ytdAA)==null ? '—' : (caCresc(t.ytdAt, t.ytdAA)>0?'+':'') + fmtPct(caCresc(t.ytdAt, t.ytdAA))),
       tone: caCresc(t.ytdAt, t.ytdAA)==null ? '' : caCresc(t.ytdAt, t.ytdAA)<0 ? 'critical' : 'good'},
     {label: objLbl + ' YTD', value: fmtBRL0(objTot), note: objTot>0 ? fmtPct(t.ytdAt/objTot) + ' atingido · falta ' + fmtBRL0(Math.max(0, objTot - t.ytdAt)) : '—',
       tone: objTot>0 && t.ytdAt>=objTot ? 'good' : ''},
-    {label: 'Cobertura da base', value: res.baseTot ? fmtPct(res.posTot/res.baseTot) : '—', note: fmtInt(res.posTot) + ' de ' + fmtInt(res.baseTot) + ' clientes × vendedor positivados em ' + mAt},
+    {label: 'Cobertura da base', value: res.baseTot ? fmtPct(res.posTot/res.baseTot) : '—', note: fmtInt(res.posTot) + ' de ' + fmtInt(res.baseTot) + ' clientes × vendedor positivados no mês atual'},
   ]);
 
   const rep = (v, tot) => tot>0 ? v/tot : null;
@@ -5877,9 +5878,9 @@ function renderCanal(){
     {key:'ytdAt', label:'R$', align:'right', grupo: yAt, cls:'ca-col-at', format: brl}, {key:'repYtdAt', label:'Rep %', align:'right', grupo: yAt, cls:'ca-col-at', format: pct},
     {key:'crescYtd', label:'Cresc./Qued. YTD', align:'right', grupo:'YTD', format: caFmtCresc},
     {key:'obj', label:'R$', align:'right', grupo: objLbl, cls:'ca-col-obj', format: brl}, {key:'ating', label:'% ating.', align:'right', grupo: objLbl, cls:'ca-col-obj', format: v => v==null ? '—' : `<span class="${v>=1 ? 'ca-pos' : 'ca-neg'}">${fmtPct(v)}</span>`},
-    {key:'base', label:'Base', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: fmtInt},
-    {key:'pos', label:'Positivados', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: fmtInt},
-    {key:'cob', label:'Cobertura', align:'right', grupo:'Cobertura da base (' + mAt + ')', cls:'ca-col-cob', format: caFmtCob},
+    {key:'base', label:'Base', align:'right', grupo:'Cobertura da base (mês atual)', cls:'ca-col-cob', format: fmtInt},
+    {key:'pos', label:'Positivados', align:'right', grupo:'Cobertura da base (mês atual)', cls:'ca-col-cob', format: fmtInt},
+    {key:'cob', label:'Cobertura', align:'right', grupo:'Cobertura da base (mês atual)', cls:'ca-col-cob', format: caFmtCob},
   ], linhas, totalRow);
 
   // Visão por cliente
@@ -5887,7 +5888,7 @@ function renderCanal(){
   const clientes = res.clientes.filter(k => !cliF || (cliF==='pos' ? k.positivado : cliF==='nao' ? (k.naBase && !k.positivado) : cliF==='queda' ? k.ytdAt < k.ytdAA : true))
     .filter(k => k.mesAt || k.mesAA || k.ytdAt || k.ytdAA || k.naBase);
   document.getElementById('ca-cli-sub').textContent =
-    `${fmtInt(clientes.length)} cliente${clientes.length===1?'':'s'} — os da carteira aparecem mesmo sem compra; "Positivado" = comprou em ${mAt} com o vendedor da carteira.`;
+    `${fmtInt(clientes.length)} cliente${clientes.length===1?'':'s'} — os da carteira aparecem mesmo sem compra; "Positivado" = comprou no mês atual com o vendedor da carteira.`;
   makeTable('table-ca-cli', {
     headers: [
       {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'canal', label:'Canal'}, {key:'tipo', label:'CPF/CNPJ'},
