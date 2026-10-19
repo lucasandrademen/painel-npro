@@ -97,6 +97,7 @@ const TABS = [
   {id:"agenda", label:"Agenda Culinaristas"},
   {id:"canal", label:"Análise por Canal"},
   {id:"categoria", label:"Análise por Categoria"},
+  {id:"acumulado", label:"Acumulado até o mês passado"},
 ];
 function initTabs(){
   const nav = document.getElementById('tabnav');
@@ -2158,8 +2159,24 @@ async function parseVendasFile(wb, buf, zipEntries){
 
   const rows = [];
   let dataDe = null, dataAte = null;
-  for(const realName of realNames){
-    const parte = await parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap);
+  // "CONSULTA DE VENDAS ACUMULA <ano>" = acumulado dos meses fechados (todas as forças). As abas
+  // NPRO/BEBIDAS/VAREJO do mesmo arquivo podem repetir esses meses; para não contar em dobro, as
+  // linhas do acumulado só entram nos meses (por origem) que nenhuma outra aba cobre.
+  const ehAcumulado = n => /\bACUMULA/.test(normalizeSheetName(n));
+  const partes = [];
+  for(const realName of realNames) partes.push({realName, acum: ehAcumulado(realName), parte: await parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap)});
+  const mesOrigem = r => { const iso = toIsoDateOp(r.dataPedido); return iso ? r.origem + '|' + iso.slice(0, 7) : null; };
+  const coberto = new Set();
+  partes.filter(p => !p.acum).forEach(p => p.parte.rows.forEach(r => { const k = mesOrigem(r); if(k) coberto.add(k); }));
+  const acumulado = {abas: partes.filter(p => p.acum).map(p => p.realName), linhas: 0, usadas: 0};
+  for(const {acum, parte} of partes){
+    if(acum){
+      acumulado.linhas += parte.rows.length;
+      const novas = parte.rows.filter(r => { const k = mesOrigem(r); return k && !coberto.has(k); });
+      acumulado.usadas += novas.length;
+      novas.forEach(r => rows.push(r));
+      continue;
+    }
     rows.push(...parte.rows);
     const deMs = dayMs(parte.dataDe), ateMs = dayMs(parte.dataAte);
     if(deMs!=null && (dataDe==null || deMs < dayMs(dataDe))) dataDe = parte.dataDe;
@@ -2169,7 +2186,7 @@ async function parseVendasFile(wb, buf, zipEntries){
   const skusSemGrupoOrigem = new Set();
   rows.forEach(r => { if(r.origem==='Varejo') skusSemGrupoOrigem.add(r.sku); });
 
-  return {rows, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem, sheetNames: realNames};
+  return {rows, dataDe, dataAte, categoriaNpro, categoriaBebidas, skusSemGrupoOrigem, sheetNames: realNames, acumulado};
 }
 
 /* ============================== ORQUESTRADORES (upload independente) ==============================
@@ -2929,6 +2946,18 @@ const PRINT_CONFIG = {
     headerExtra: () => {
       const f = ctLerFiltros();
       const chips = [['Visão', CA_VISOES[f.visao]], ['Mês', f.mes.slice(5,7) + '/' + f.mes.slice(0,4)], ['Setor', f.setor ? scVendedorLabel(f.setor) : '(Todos)']];
+      if(f.canal) chips.push(['Canal', f.canal]);
+      return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
+    },
+  },
+  acumulado: {
+    title:'Acumulado até o mês passado', orientation:'landscape', kpi:'kpi-acm', blocks:[], hideFilters:true,
+    tables:[{id:'table-acm-mes', title:'Por mês'}, {id:'table-acm-cat', title:'Por categoria'}, {id:'table-acm-origem', title:'Por origem'},
+      {id:'table-acm-setor', title:'Por vendedor'}, {id:'table-acm-canal', title:'Por canal'}, {id:'table-acm-cli', title:'Por cliente'}],
+    periodLabel: () => document.getElementById('acm-info').textContent,
+    headerExtra: () => {
+      const f = acmLerFiltros();
+      const chips = [['Visão', CA_VISOES[f.visao]], ['Setor', f.setor ? scVendedorLabel(f.setor) : '(Todos)']];
       if(f.canal) chips.push(['Canal', f.canal]);
       return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
     },
@@ -6149,6 +6178,143 @@ function initCategoria(){
   RENDERERS.categoria = renderCategoria;
 }
 
+/* ============================================================================
+   ACUMULADO ATÉ O MÊS PASSADO — meses fechados do ano contra o mesmo período do ano anterior
+   ============================================================================
+   Vem da planilha de Vendas (aba "CONSULTA DE VENDAS ACUMULA <ano>" + histórico do ano anterior),
+   sem depender do mês em andamento: por mês, categoria, origem (BRN2 = NPRO + Varejo, BRN8 =
+   Bebidas), vendedor, canal e cliente. O mês final é ajustável (padrão: mês passado). */
+const ACM_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function acmMesPassadoKey(){
+  const [a, m] = crMesAtualKey().split('-').map(Number);
+  return m===1 ? (a-1) + '-12' : a + '-' + String(m-1).padStart(2, '0');
+}
+function acmLerFiltros(){
+  const v = id => document.getElementById(id).value;
+  return {ate: v('acm-ate') || acmMesPassadoKey(), visao: v('acm-visao') || 'todos', setor: v('acm-setor'), canal: v('acm-canal')};
+}
+function acmCalcular(f){
+  const [ano, mes] = f.ate.split('-').map(Number);
+  const {carteira} = scDados();
+  const cad = new Map();
+  carteira.forEach(c => { const o = cad.get(c.sold); if(!o) cad.set(c.sold, {razao: c.razao, canal: c.canal || null}); else if(!o.canal && c.canal) o.canal = c.canal; });
+  const razoes = new Map((DATA.clientes||[]).map(c => [String(c[0]), c[1]]));
+  const canalDe = sold => (cad.get(sold) || {}).canal || CA_SEM_CANAL;
+  const par = () => ({at:0, aa:0});
+  const somar = (mapa, k, per, fat) => { let o = mapa.get(k); if(!o){ o = par(); mapa.set(k, o); } o[per] += fat; return o; };
+  const meses = Array.from({length: mes}, par), total = par();
+  const porCat = new Map(), porOrigem = new Map(), porSetor = new Map(), porCanal = new Map(), porCli = new Map();
+  const ISO_AT = [ano + '-01-01', ano + '-' + String(mes).padStart(2, '0') + '-31'], ISO_AA = [(ano-1) + '-01-01', (ano-1) + '-' + String(mes).padStart(2, '0') + '-31'];
+  for(const r of (DATA.baseVendas||[])){
+    const d = r[3]; if(!d || r[0]==null || r[1]==null) continue;
+    const per = d>=ISO_AT[0] && d<=ISO_AT[1] ? 'at' : d>=ISO_AA[0] && d<=ISO_AA[1] ? 'aa' : null;
+    if(!per) continue;
+    if(f.visao==='brn8' ? r[7]!=='BEBIDAS' : f.visao==='brn2' ? r[7]==='BEBIDAS' : false) continue;
+    const setor = String(r[1]); if(f.setor && setor!==f.setor) continue;
+    const sold = String(r[0]), canal = canalDe(sold); if(f.canal && canal!==f.canal) continue;
+    const fat = Number(r[9])||0, m = Number(d.slice(5, 7)) - 1;
+    meses[m][per] += fat; total[per] += fat;
+    if(CT_CATS.has(r[5])) somar(porCat, r[5], per, fat);
+    somar(porOrigem, r[7]==='BEBIDAS' ? 'BEBIDAS' : r[7]==='NPRO' ? 'NPRO' : 'Varejo', per, fat);
+    somar(porSetor, setor, per, fat);
+    somar(porCanal, canal, per, fat);
+    const k = somar(porCli, sold, per, fat); k.canal = canal; (k.setores = k.setores || new Set()).add(setor);
+  }
+  porCli.forEach((k, sold) => { k.sold = sold; k.razao = (cad.get(sold)||{}).razao || razoes.get(sold) || ''; });
+  return {ano, mes, meses, total, porCat, porOrigem, porSetor, porCanal, clientes: [...porCli.values()]};
+}
+function renderAcumulado(){
+  const wrap = document.getElementById('acm-wrap');
+  if(!wrap) return;
+  const hint = document.getElementById('acm-hint');
+  if(!(DATA.baseVendas||[]).length){ wrap.style.display = 'none'; hint.style.display = ''; hint.textContent = 'Envie a planilha de Vendas para ver o acumulado.'; return; }
+  wrap.style.display = ''; hint.style.display = 'none';
+  const opc = (id, lista, rotulo) => {
+    const el = document.getElementById(id), atual = el.value;
+    el.innerHTML = '<option value="">(Todos)</option>' + lista.map(v => `<option value="${esc(v)}">${esc(rotulo ? rotulo(v) : v)}</option>`).join('');
+    el.value = lista.includes(atual) ? atual : '';
+  };
+  opc('acm-setor', crSetores(), scVendedorLabel);
+  opc('acm-canal', [...new Set(scDados().carteira.map(c => c.canal).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')).concat([CA_SEM_CANAL]));
+
+  const f = acmLerFiltros(), res = acmCalcular(f), t = res.total;
+  const ultMes = ACM_MESES[res.mes-1];
+  document.getElementById('acm-info').textContent =
+    `${CA_VISOES[f.visao]} · acumulado de janeiro a ${ultMes.toLowerCase()} do ano atual (${res.ano}) × o mesmo período do ano anterior (${res.ano-1})`;
+  const cr = caCresc(t.at, t.aa), crTxt = cr==null ? '—' : (cr>0 ? '+' : '') + fmtPct(cr);
+  const melhor = res.meses.reduce((b, x, i) => x.at > (res.meses[b] ? res.meses[b].at : -1) ? i : b, 0);
+  renderKPIs('kpi-acm', [
+    {label: 'Acumulado ano atual', value: fmtBRL0(t.at), note: 'ano anterior: ' + fmtBRL0(t.aa) + ' · ' + crTxt, tone: cr==null ? '' : cr<0 ? 'critical' : 'good'},
+    {label: 'Diferença no acumulado', value: (t.at-t.aa>0 ? '+' : '') + fmtBRL0(t.at - t.aa), note: 'ano atual − ano anterior', tone: t.at-t.aa<0 ? 'critical' : 'good'},
+    {label: 'Média mensal ano atual', value: fmtBRL0(t.at / res.mes), note: 'ano anterior: ' + fmtBRL0(t.aa / res.mes)},
+    {label: 'Melhor mês do ano atual', value: ACM_MESES[melhor], note: fmtBRL0((res.meses[melhor]||{}).at)},
+  ]);
+
+  const brl = v => fmtBRL0(v), pct = v => v==null ? '—' : fmtPct(v), rep = v => t.at>0 ? v/t.at : null;
+  // Por mês: valores do mês e acumulado corrente.
+  let acA = 0, acB = 0;
+  const L = res.meses.map((m, i) => { acA += m.aa; acB += m.at; return {mes: ACM_MESES[i], aa: m.aa, at: m.at, cresc: caCresc(m.at, m.aa),
+    acAA: acA, acAt: acB, acCresc: caCresc(acB, acA), rep: rep(m.at)}; });
+  crTabela('table-acm-mes', [
+    {key:'mes', label:'Mês', format: v => `<b>${esc(v)}</b>`},
+    {key:'aa', label:'Ano anterior', align:'right', grupo:'No mês', format: brl}, {key:'at', label:'Ano atual', align:'right', grupo:'No mês', cls:'ca-col-at', format: brl},
+    {key:'cresc', label:'Cresc./Qued. %', align:'right', grupo:'No mês', format: caFmtCresc},
+    {key:'acAA', label:'Ano anterior', align:'right', grupo:'Acumulado', format: brl}, {key:'acAt', label:'Ano atual', align:'right', grupo:'Acumulado', cls:'ca-col-at', format: brl},
+    {key:'acCresc', label:'Cresc./Qued. %', align:'right', grupo:'Acumulado', format: caFmtCresc}, {key:'rep', label:'Rep % do ano', align:'right', format: pct},
+  ], L, {mes:'Total', aa: t.aa, at: t.at, cresc: cr, acAA: t.aa, acAt: t.at, acCresc: cr, rep: t.at ? 1 : null});
+
+  // Demais cortes: mesmas colunas (ano anterior, ano atual, cresc., rep %).
+  const cortes = (mapa, ordem, rotuloCol, fmtChave) => {
+    const linhas = [...mapa.entries()].map(([k, v]) => ({k, aa: v.aa, at: v.at, cresc: caCresc(v.at, v.aa), rep: rep(v.at)}));
+    linhas.sort(ordem || ((a, b) => b.at - a.at));
+    return {headers: [{key:'k', label: rotuloCol, format: fmtChave || (v => esc(v))},
+      {key:'aa', label:'Acumulado ano anterior', align:'right', format: brl}, {key:'at', label:'Acumulado ano atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'cresc', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'rep', label:'Rep %', align:'right', format: pct}],
+      linhas, total: {k:'Total', aa: t.aa, at: t.at, cresc: cr, rep: t.at ? 1 : null}};
+  };
+  const catOrd = (a, b) => CR_CATEGORIAS_CLIENTE.indexOf(a.k) - CR_CATEGORIAS_CLIENTE.indexOf(b.k);
+  [['table-acm-cat', res.porCat, 'Categoria', catOrd, v => crCatTag(v)],
+   ['table-acm-origem', res.porOrigem, 'Origem', null, v => esc(v==='Varejo' ? 'Varejo (BRN2)' : v==='NPRO' ? 'NPRO (BRN2)' : v==='BEBIDAS' ? 'Bebidas (BRN8)' : v)],
+   ['table-acm-setor', res.porSetor, 'Vendedor', (a, b) => b.at - a.at, v => esc(scVendedorLabel(v))],
+   ['table-acm-canal', res.porCanal, 'Canal', null, v => esc(v)]].forEach(([id, mapa, rot, ord, fk]) => {
+    const c = cortes(mapa, ord, rot, fk);
+    crTabela(id, c.headers, c.linhas, c.total);
+  });
+
+  makeTable('table-acm-cli', {
+    headers: [
+      {key:'sold', label:'Sold'}, {key:'razao', label:'Razão Social'}, {key:'canal', label:'Canal'}, {key:'setores', label:'Setor'},
+      {key:'aa', label:'Acumulado ano anterior', align:'right', format: brl}, {key:'at', label:'Acumulado ano atual', align:'right', cls:'ca-col-at', format: brl},
+      {key:'dif', label:'Diferença', align:'right', format: v => `<span class="${v<0 ? 'ca-neg' : 'ca-pos'}">${v>0 ? '+' : ''}${brl(v)}</span>`},
+      {key:'cresc', label:'Cresc./Qued. %', align:'right', format: caFmtCresc}, {key:'rep', label:'Rep %', align:'right', format: pct},
+    ],
+    rows: res.clientes,
+    getRow: k => ({sold: k.sold, razao: k.razao, canal: k.canal, setores: [...k.setores].sort().join(', '), aa: k.aa, at: k.at,
+      dif: k.at - k.aa, cresc: caCresc(k.at, k.aa), rep: rep(k.at)}),
+    defaultSort: {key:'at', dir:'desc'}, pageSize: 20,
+  });
+}
+function acmMarcarVisao(){
+  const v = document.getElementById('acm-visao').value;
+  document.querySelectorAll('[data-acm-visao]').forEach(b => { const on = b.dataset.acmVisao===v; b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+}
+function initAcumulado(){
+  if(!document.getElementById('acm-wrap')) return;
+  document.getElementById('acm-ate').value = acmMesPassadoKey();
+  ['acm-ate','acm-visao','acm-setor','acm-canal'].forEach(id => document.getElementById(id).addEventListener('change', renderAcumulado));
+  document.getElementById('acm-visao').addEventListener('change', acmMarcarVisao);
+  document.querySelectorAll('[data-acm-visao]').forEach(b => b.addEventListener('click', () => {
+    document.getElementById('acm-visao').value = b.dataset.acmVisao; acmMarcarVisao(); renderAcumulado();
+  }));
+  document.getElementById('acm-reset').addEventListener('click', () => {
+    document.getElementById('acm-ate').value = acmMesPassadoKey();
+    ['acm-setor','acm-canal'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('acm-visao').value = 'todos'; acmMarcarVisao(); renderAcumulado();
+  });
+  acmMarcarVisao();
+  RENDERERS.acumulado = renderAcumulado;
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -6170,6 +6336,7 @@ function init(){
   initAgenda();
   initCanal();
   initCategoria();
+  initAcumulado();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();

@@ -958,6 +958,63 @@
     </div>
   </section>
 
+  <section class="tabpanel" data-tab="acumulado">
+    <div class="section-title">Acumulado até o mês passado</div>
+    <div class="section-note">
+      Vendas dos meses já fechados (de janeiro até o mês escolhido — por padrão, o mês passado) contra o mesmo período do ano
+      anterior. Os dados vêm da planilha enviada em <b>Enviar Vendas</b>: a aba <b>CONSULTA DE VENDAS ACUMULA</b> traz os
+      meses fechados de todas as forças, e o app não conta duas vezes o que as abas NPRO, Bebidas e Varejo repetirem.
+      <b>BRN2</b> = NPRO + Varejo; <b>BRN8</b> = Bebidas. Esta aba usa os próprios filtros abaixo, não o "Período analisado" do topo.
+    </div>
+
+    <div class="ca-visoes" role="group" aria-label="Visão">
+      <button type="button" class="ca-visao-btn" data-acm-visao="todos">BRN2 + BRN8</button>
+      <button type="button" class="ca-visao-btn" data-acm-visao="brn2">BRN2 · NPRO + Varejo</button>
+      <button type="button" class="ca-visao-btn" data-acm-visao="brn8">BRN8 · Bebidas</button>
+    </div>
+    <div class="filterbar ca-filtros" id="acm-filtros">
+      <div>
+        <span class="flabel">Acumulado até o mês</span>
+        <input type="month" id="acm-ate" aria-label="Último mês do acumulado">
+      </div>
+      <div>
+        <span class="flabel">Visão</span>
+        <select id="acm-visao">
+          <option value="todos">BRN2 + BRN8</option>
+          <option value="brn2">BRN2 (NPRO + Varejo)</option>
+          <option value="brn8">BRN8 (Bebidas)</option>
+        </select>
+      </div>
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="acm-setor"><option value="">(Todos)</option></select>
+      </div>
+      <div>
+        <span class="flabel">Canal</span>
+        <select id="acm-canal"><option value="">(Todos)</option></select>
+      </div>
+      <button class="filter-reset" id="acm-reset" type="button">Limpar filtros</button>
+    </div>
+
+    <div id="acm-hint" class="mapa-empty-hint" style="display:none;"></div>
+    <div id="acm-wrap">
+      <div class="kpi-row" id="kpi-acm"></div>
+      <div class="panel-sub cr-info" id="acm-info"></div>
+      <div class="ct-grid">
+        <div class="panel"><h3>Por mês</h3><div class="panel-sub">Valor de cada mês e acumulado corrente, ano atual × ano anterior.</div><div id="table-acm-mes"></div></div>
+        <div class="panel"><h3>Por categoria</h3><div class="panel-sub">As 7 categorias Nestlé Professional.</div><div id="table-acm-cat"></div></div>
+        <div class="panel"><h3>Por origem</h3><div class="panel-sub">NPRO e Varejo = BRN2; Bebidas = BRN8.</div><div id="table-acm-origem"></div></div>
+        <div class="panel"><h3>Por vendedor</h3><div id="table-acm-setor"></div></div>
+        <div class="panel"><h3>Por canal</h3><div id="table-acm-canal"></div></div>
+      </div>
+      <div class="panel" style="margin-top:14px;">
+        <h3>Por cliente</h3>
+        <div class="panel-sub">Clientes com venda no acumulado do ano atual ou do ano anterior.</div>
+        <div id="table-acm-cli"></div>
+      </div>
+    </div>
+  </section>
+
   <div class="disclosure">
     <b>Sobre este painel:</b> é um retrato (snapshot) dos números exportados do Flexx — os dados não se conectam automaticamente ao banco. Para atualizar, envie uma exportação nova pelos botões <b>Enviar Estoque</b> / <b>Enviar Vendas</b> no topo: o arquivo é lido no próprio navegador e, ao confirmar, a nova versão fica <b>publicada no painel para todas as pessoas</b>, em qualquer máquina. Toda publicação guarda a anterior, então dá para desfazer.
   </div>
@@ -987,6 +1044,6 @@
 </div>
 
 
-<script src="assets/app.js?v=59" defer></script>
+<script src="assets/app.js?v=61" defer></script>
 </body>
 </html>
