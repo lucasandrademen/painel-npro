@@ -2092,7 +2092,9 @@ async function parseGrupoOrigemSheet(wb, buf, zipEntries, expectedName, origem, 
 // Lê UMA aba de vendas (uma "CONSULTA DE VENDAS", "CONSULTA DE VENDAS 2025", etc.)
 // e devolve suas linhas cruas — extraído de parseVendasFile para poder ser chamado
 // uma vez por ano/aba encontrada e depois juntar tudo num único histórico.
-async function parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap){
+// varrerTudo: a aba ACUMULA vem em blocos (Varejo, NPRO, Bebidas...) separados por faixas de linhas em
+// branco — até centenas —, então ela não pode parar na 1ª sequência de linhas vazias.
+async function parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap, varrerTudo){
   const grid = await getSheetGridRobust(wb, buf, zipEntries, realName);
   const headerRow = findHeaderRowByAnchor(grid, 'SKU', 8);
   if(!headerRow) throw new UploadValidationError(`A aba "${realName}" foi encontrada, mas não localizei a linha de cabeçalho (coluna "SKU").`);
@@ -2122,7 +2124,7 @@ async function parseVendasSheet(wb, buf, zipEntries, realName, expectedName, gru
   const rows = [];
   const skusSemGrupoOrigem = new Set();
   let blankStreak = 0;
-  for(let r=headerRow+1; r<=grid.length && blankStreak<15; r++){
+  for(let r=headerRow+1; r<=grid.length && (varrerTudo || blankStreak<15); r++){
     const soldV = ocell(grid,r,cSold);
     const skuV = ocell(grid,r,cSku);
     if(soldV==null || skuV==null){ blankStreak++; continue; }
@@ -2165,7 +2167,7 @@ async function parseVendasFile(wb, buf, zipEntries){
   // linhas do acumulado só entram nos meses (por origem) que nenhuma outra aba cobre.
   const ehAcumulado = n => /\bACUMULA/.test(normalizeSheetName(n));
   const partes = [];
-  for(const realName of realNames) partes.push({realName, acum: ehAcumulado(realName), parte: await parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap)});
+  for(const realName of realNames) partes.push({realName, acum: ehAcumulado(realName), parte: await parseVendasSheet(wb, buf, zipEntries, realName, expectedName, grupoOrigemMap, ehAcumulado(realName))});
   const mesOrigem = r => { const iso = toIsoDateOp(r.dataPedido); return iso ? r.origem + '|' + iso.slice(0, 7) : null; };
   const coberto = new Set();
   partes.filter(p => !p.acum).forEach(p => p.parte.rows.forEach(r => { const k = mesOrigem(r); if(k) coberto.add(k); }));
