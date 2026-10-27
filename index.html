@@ -33,7 +33,7 @@
   });
   window.__snapshotPromise.catch(function(){});
 </script>
-<link rel="stylesheet" href="assets/app.css?v=30">
+<link rel="stylesheet" href="assets/app.css?v=31">
 </head>
 <body>
 <div class="boot-screen" id="boot-screen">
@@ -99,6 +99,32 @@
     </div>
     <div class="filterbar" data-fbar="estvend"></div>
     <div class="active-chips" id="chips-evfiltros"></div>
+  </section>
+
+  <section class="tabpanel" data-tab="plano">
+    <div class="section-title">Plano de Metas — Rota de Pontos</div>
+    <div class="section-note">
+      Como bater o <b>Crescer +</b> e o <b>Brasileirão</b> juntos: os degraus de pontos mais baratos, os clientes que já compraram e pararam,
+      o que levar (SKU e caixas) e o que o estoque permite vender — inclusive o que está <b>em trânsito</b> (só a quantidade; o SAP não traz a
+      data de chegada). Esta seção usa o mês atual e os próprios controles abaixo, não os filtros do topo.
+    </div>
+    <div class="filterbar ca-filtros" id="pl-filtros">
+      <div>
+        <span class="flabel">Setor</span>
+        <select id="pl-setor"><option value="">Empresa (resumo)</option></select>
+      </div>
+      <div id="pl-dia-wrap" style="display:none;">
+        <span class="flabel">Rota</span>
+        <select id="pl-dia">
+          <option value="hoje">Hoje</option>
+          <option value="amanha">Amanhã</option>
+          <option value="semana">Semana</option>
+          <option value="restantes">Dias úteis restantes</option>
+        </select>
+      </div>
+    </div>
+    <div class="panel-sub cr-info" id="pl-info"></div>
+    <div id="pl-conteudo"></div>
   </section>
 
   <section class="tabpanel active" data-tab="dashboard">
@@ -1132,6 +1158,6 @@
 </div>
 
 
-<script src="assets/app.js?v=63" defer></script>
+<script src="assets/app.js?v=65" defer></script>
 </body>
 </html>

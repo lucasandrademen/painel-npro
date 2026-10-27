@@ -873,3 +873,43 @@ table.datatable tbody tr:nth-child(even){background:var(--bg);}
 .gar-banner .section-title{margin:0; color:#C00000; font-weight:800;}
 .gar-logo{height:48px; width:auto; display:block;}
 .gar-print-logo img{height:34px; margin-left:auto;}
+
+/* Plano de Metas */
+.pl-aviso{background:#FFF4D6; border:1px solid #E0A100; color:#6b4a00; border-radius:var(--radius-sm); padding:8px 12px; font-size:12px; margin-bottom:10px;}
+.pl-manchete{background:var(--surface); border-left:4px solid var(--accent); border-radius:var(--radius-sm); padding:12px 16px; font-size:14px; line-height:1.5; margin-bottom:14px; box-shadow:var(--shadow);}
+.pl-bloco{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; margin-bottom:14px; box-shadow:var(--shadow); min-width:0;}
+.pl-bloco h4{margin:0 0 8px; font-size:14px; color:var(--text);}
+.pl-bloco h5{margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-muted);}
+.pl-nota{font-size:11.5px; color:var(--text-muted);}
+.pl-chips{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12.5px; margin-bottom:8px;}
+.pl-duplo{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:14px;}
+.pl-duplo .pl-bloco{margin-bottom:0;}
+.pl-linha-barra{display:grid; grid-template-columns:90px 1fr 70px; gap:8px; align-items:center; font-size:12px; margin:5px 0;}
+.pl-barra{position:relative; height:10px; background:var(--surface-2); border-radius:6px;}
+.pl-barra i{display:block; height:100%; border-radius:6px;}
+.pl-barra i.pl-ok{background:var(--good-ink, #1E7A45);} .pl-barra i.pl-mid{background:#E0A100;} .pl-barra i.pl-baixo{background:var(--critical-ink, #B3261E);}
+.pl-barra u{position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text); text-decoration:none;}
+.pl-tab td, .pl-tab th{white-space:nowrap;}
+.pl-lin-setor{cursor:pointer;} .pl-lin-setor:hover td{background:var(--surface-2);}
+.pl-mapa th, .pl-mapa td{text-align:center; padding:6px 7px; font-size:12px;}
+.pl-mapa td.pl-c-100{background:#CDEBD5; color:#1E7A45; font-weight:700;}
+.pl-mapa td.pl-c-60{background:#FBE9B0; color:#7a5800; font-weight:700;}
+.pl-mapa td.pl-c-alc{outline:2px solid #E0A100; outline-offset:-2px; font-weight:700;}
+.pl-mapa td.pl-c-transito{background:#D6E6FF; color:#1E4FA8; font-size:10.5px;}
+.pl-mapa td.pl-c-sem{background:#F6D3D0; color:#B3261E; font-size:10.5px;}
+.pl-mapa td.pl-c-nada{color:var(--text-faint);}
+.pl-lista{list-style:none; margin:0; padding:0; font-size:12.5px;} .pl-lista li{margin:5px 0;}
+.pl-tres{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:14px;}
+.pl-est{font-size:11.5px; font-weight:600;} .pl-est-ok{color:var(--good-ink, #1E7A45);} .pl-est-cautela{color:#a06a00;} .pl-est-transito{color:#1E4FA8;} .pl-est-sem{color:var(--critical-ink, #B3261E);}
+.pl-termo{display:inline-flex; width:60px; height:8px; background:var(--surface-2); border-radius:5px; overflow:hidden; vertical-align:middle; margin-left:4px;}
+.pl-termo i{background:var(--accent); display:block;} .pl-termo b{background:repeating-linear-gradient(45deg,#7FA8E8,#7FA8E8 3px,#D6E6FF 3px,#D6E6FF 6px); display:block;}
+.pl-selo{display:inline-block; font-size:10.5px; font-weight:700; border-radius:999px; padding:1px 8px; background:var(--surface-2); color:var(--text-muted); margin-left:4px; white-space:nowrap;}
+.pl-selo-dobro{background:#EBD9CC; color:#7A4A2A;} .pl-selo-dupla{background:#CDEBD5; color:#1E7A45;} .pl-selo-transito{background:#D6E6FF; color:#1E4FA8;} .pl-selo-troca{background:#FBE9B0; color:#7a5800;}
+.pl-cartoes{display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:10px; margin-top:10px;}
+.pl-cartao{border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; background:var(--surface-2); break-inside:avoid;}
+.pl-cab{font-size:12.5px; margin-bottom:6px;} .pl-cab .pl-sub{display:block; font-size:11px; color:var(--text-muted);}
+.pl-n{display:inline-block; min-width:20px; text-align:center; border-radius:999px; background:var(--accent); color:#fff; font-size:11px; font-weight:700; margin-right:6px;}
+.pl-item{font-size:12px; margin:6px 0; padding-top:6px; border-top:1px dashed var(--border);}
+.pl-titulo-setor{margin:0 0 8px; font-size:16px;}
+@media print{ .pl-pagina{break-before:page; page-break-before:always;} .pl-bloco, .pl-cartao{break-inside:avoid;} }
+.print-sheet .pl-pagina{break-before:page; page-break-before:always;}

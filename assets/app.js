@@ -79,6 +79,7 @@ function hideTooltip(){ tooltipEl.classList.remove('show'); }
 const TAB_GRUPOS = { estvend: {label:"Estoque VS Vendas"} };
 const TABS = [
   {id:"evfiltros", label:"Filtros", grupo:"estvend"}, // painel único de filtros do grupo
+  {id:"plano", label:"Plano de Metas", grupo:"estvend"},
   {id:"dashboard", label:"Dashboard", grupo:"estvend"},
   {id:"sku", label:"Estoque × SKU", grupo:"estvend"},
   {id:"dde", label:"DDE", grupo:"estvend"},
@@ -2051,6 +2052,7 @@ async function parseEstoqueFile(buf){
   const cTexto = requireCol(map,'TEXTO BREVE MATERIAL','Estoque');
   const cRemPnd = requireCol(map,'REMPNDDISP','Estoque');
   const cCen = optCol(map,'CEN.');
+  const cTransito = optCol(map,'TRANSITO'); // em trânsito (caixas) — opcional, arquivos antigos podem não ter
 
   const rows = [];
   const plantas = new Set();
@@ -2063,10 +2065,11 @@ async function parseEstoqueFile(buf){
     rows.push({
       sku: String(skuV).trim(), material: ocell(grid,r,cTexto),
       estoqueCx: parseEuroNumber(ocell(grid,r,cRemPnd)),
+      transito: cTransito ? parseEuroNumber(ocell(grid,r,cTransito)) : 0,
     });
   }
   if(rows.length===0) throw new UploadValidationError('O arquivo de Estoque foi lido, mas nenhuma linha de material foi encontrada.');
-  return {rows, plantas};
+  return {rows, plantas, temTransito: !!cTransito};
 }
 
 /* ============================== ARQUIVO DE VENDAS ==============================
@@ -2197,7 +2200,7 @@ async function parseVendasFile(wb, buf, zipEntries){
    que precisa (classificação Categoria/Grupo/Família <-> Estoque em Caixas) a partir
    do que já está atualmente carregado em DATA — nunca inventando valores. */
 async function applyEstoqueUpload(buf){
-  const {rows: estoqueRows, plantas} = await parseEstoqueFile(buf);
+  const {rows: estoqueRows, plantas, temTransito} = await parseEstoqueFile(buf);
 
   const estoqueMap = new Map();
   const duplicados = [];
@@ -2255,7 +2258,11 @@ async function applyEstoqueUpload(buf){
   const skuRows = Array.from(catalog.entries()).map(([sku, m]) =>
     [sku, m.material, m.categoria, m.grupo, m.familia, m.estoqueCx, 0,0,0,0,null,0,'-']);
 
-  const newData = Object.assign({}, DATA, { sku: { headers: DATA.sku.headers, rows: skuRows } });
+  // Em trânsito (caixas por SKU) — usado pelo Plano de Metas; só quantidade, o SAP não informa a data de chegada.
+  const transitoMapa = {};
+  estoqueMap.forEach((r, sku) => { if(r.transito > 0) transitoMapa[sku] = r.transito; });
+  const newData = Object.assign({}, DATA, { sku: { headers: DATA.sku.headers, rows: skuRows },
+    estoqueTransito: { temColuna: temTransito, mapa: transitoMapa } });
 
   const diagnostics = {
     ok: true, kind: 'estoque',
@@ -2952,6 +2959,12 @@ const PRINT_CONFIG = {
       if(f.canal) chips.push(['Canal', f.canal]);
       return '<div class="print-filters-row">' + chips.map(([k, v]) => `<span class="print-filter-chip"><b>${esc(k)}:</b> ${esc(v)}</span>`).join('') + '</div>';
     },
+  },
+  plano: {
+    title:'Plano de Metas — Rota de Pontos', orientation:'landscape', kpi:null, blocks:[], tables:[], hideFilters:true,
+    bodyHtml: () => plPrintHtml(),
+    periodLabel: () => document.getElementById('pl-info').textContent,
+    headerExtra: () => { const f = plLerFiltros(); return '<div class="print-filters-row"><span class="print-filter-chip"><b>Setor:</b> ' + esc(f.setor || 'Empresa (todas as páginas)') + '</span></div>'; },
   },
   garoto: {
     title:'Análise por Categoria — Garoto', orientation:'landscape', kpi:'kpi-gar', blocks:[], hideFilters:true,
@@ -6532,6 +6545,379 @@ function initGaroto(){
 
 
 
+/* ============================================================================
+   PLANO DE METAS — "Rota de Pontos" (Estoque VS Vendas)
+   ============================================================================
+   Junta Crescer + e Brasileirão com o estoque (disponível e em trânsito) e o histórico de
+   compra de cada cliente: mostra a cada setor quais degraus de pontos estão perto, quais
+   clientes recuperar, o que levar (SKU e caixas) e o que o estoque permite vender.
+   - Degraus do Brasileirão: 60% da meta = 40% dos pontos máximos; 100% = pontos máximos
+     (peso dobrado nas 02A/02B/02F/02G/03A/03B), × o peso do mês.
+   - "Recuperável" = cliente do setor que comprou a subcategoria nos últimos 120 dias e
+     ainda não comprou neste mês. A atribuição do setor segue a do Brasileirão.
+   - Estoque: disponível = RemPndDisp do SAP; em trânsito = coluna Transito (só quantidade, sem data). */
+const PL_CATS_CRESCER = ['01','02','03','07'];
+const PL_DIA_NOMES = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'];
+let _plCache = {chave: null, dados: null};
+
+function plLerFiltros(){
+  const v = id => (document.getElementById(id) || {}).value;
+  return {setor: v('pl-setor') || '', dia: v('pl-dia') || 'hoje'};
+}
+function plMesKey(){ return crMesAtualKey(); }
+function plIso(ms){ return fmtDateOnly(ms); }
+// Dias úteis (sem feriados) a partir de hoje, conforme o recorte escolhido.
+function plDias(mesKey, recorte){
+  const cal = crCalendario(mesKey), hoje = scHojeMs();
+  const feriados = new Set(cal.feriados);
+  const util = ms => scDiaSemana(ms) <= 5 && !feriados.has(plIso(ms));
+  const restantes = [];
+  for(let ms = Math.max(hoje, cal.iniMs); ms <= cal.fimMs; ms += SC_DIA_MS) if(util(ms)) restantes.push(ms);
+  if(recorte==='restantes') return restantes;
+  if(recorte==='hoje') return restantes.slice(0, 1);
+  if(recorte==='amanha') return restantes.slice(1, 2);
+  // semana: até a sexta-feira da semana corrente (ou da próxima, se hoje já for o fim da semana)
+  const fimSem = scInicioSemanaMs(restantes[0] != null ? restantes[0] : hoje) + 4*SC_DIA_MS;
+  return restantes.filter(ms => ms <= fimSem);
+}
+
+// Estoque por SKU e por subcategoria, a partir de DATA.sku (disponível) e DATA.estoqueTransito.
+function plEstoque(){
+  const h = DATA.sku.headers, iCode = h.indexOf('SKU'), iMat = h.indexOf('Material'), iFam = h.indexOf('Família'), iEst = h.indexOf('Estoque (Cx)') >= 0 ? h.indexOf('Estoque (Cx)') : 5;
+  const trans = (DATA.estoqueTransito && DATA.estoqueTransito.mapa) || {};
+  const porSku = new Map(), porSub = new Map();
+  (DATA.sku.rows || []).forEach(r => {
+    const sku = String(r[iCode]), fam = r[iFam] ? String(r[iFam]) : '', sub = fam.slice(0, 3);
+    const bruto = Number(r[iEst]) || 0, disp = bruto >= 1 ? bruto : 0, tr = Number(trans[sku]) || 0; // menos de 1 caixa não dá para vender
+    porSku.set(sku, {sku, mat: r[iMat], sub, fam, disp, trans: tr});
+    if(!/^\d{2}[A-Z]$/.test(sub)) return;
+    let s = porSub.get(sub); if(!s){ s = {disp: 0, trans: 0, skus: []}; porSub.set(sub, s); }
+    s.disp += disp; s.trans += tr; s.skus.push(sku);
+  });
+  return {porSku, porSub, temTransito: !!(DATA.estoqueTransito && DATA.estoqueTransito.temColuna)};
+}
+
+function plCalcular(mesKey){
+  const chave = [mesKey, scHojeMs(), (DATA.baseVendas||[]).length, DATA.sku && DATA.sku.rows ? DATA.sku.rows.length : 0, !!DATA.estoqueTransito].join('|');
+  if(_plCache.chave===chave && _plCache.fonte===DATA.baseVendas) return _plCache.dados;
+  const br = brCalcular(mesKey), cr = crCalcular(mesKey), peso = br.peso;
+  const setores = br.setores, equipe = new Set(setores);
+  const forca = brForcas(), est = plEstoque();
+  const {carteira} = scDados();
+  const hoje = scHojeMs();
+  const iniMes = plIso(br.cal.iniMs), recIni = plIso(hoje - 120*SC_DIA_MS), ano1 = plIso(hoje - 365*SC_DIA_MS), vol60 = plIso(hoje - 60*SC_DIA_MS);
+  const subSet = new Set(BR_SUBCATS.map(s => s.slice(0, 3)));
+  const catsCliente = new Set(CR_CATEGORIAS_CLIENTE);
+  const atendente = (sold, origem) => { const f = forca.get(sold); if(!f) return null; return origem==='BEBIDAS' ? (f.beb || f.npro) : (f.npro || f.beb); };
+
+  // Um passo pelo histórico: por setor|sold guarda o que comprou no mês, o que comprou recentemente e as caixas por SKU.
+  const cli = new Map(); // setor|sold -> {mesSub:Set, mesCat:Set, rec:Map(sub->ultimaISO), skus:Map(sku->{n, cx:[]}), fat90:0}
+  const vendaSub = new Map(), vendaSku = new Map(); // caixas da empresa nos últimos 60 dias
+  for(const r of (DATA.baseVendas||[])){
+    const iso = r[3]; if(!iso || iso < ano1) continue;
+    const sub = r[6] ? String(r[6]).slice(0, 3) : '', cat = r[5], sold = String(r[0]), cx = Number(r[11]) || 0;
+    if(iso >= vol60){ vendaSub.set(sub, (vendaSub.get(sub)||0) + cx); vendaSku.set(String(r[4]), (vendaSku.get(String(r[4]))||0) + cx); }
+    const ehSub = subSet.has(sub), ehCat = catsCliente.has(cat);
+    if(!ehSub && !ehCat) continue;
+    const setor = equipe.has(String(r[1])) ? String(r[1]) : atendente(sold, r[7]);
+    if(!setor) continue;
+    const k = setor + '|' + sold;
+    let o = cli.get(k); if(!o){ o = {mesSub: new Set(), mesCat: new Set(), rec: new Map(), skus: new Map(), fat90: 0}; cli.set(k, o); }
+    if(iso >= iniMes){
+      if(ehSub) o.mesSub.add(sub);
+      if(ehCat) o.mesCat.add(String(cat).slice(0, 2));
+    } else if(ehSub){
+      if(iso >= recIni){ const ant = o.rec.get(sub); if(!ant || iso > ant) o.rec.set(sub, iso); o.fat90 += Number(r[9]) || 0; }
+      const sk = String(r[4]); let s = o.skus.get(sk); if(!s){ s = {n: 0, cx: [], sub}; o.skus.set(sk, s); }
+      s.n++; if(cx > 0) s.cx.push(cx);
+    }
+  }
+  const dUteis60 = (() => { let n = 0; for(let ms = hoje - 60*SC_DIA_MS; ms < hoje; ms += SC_DIA_MS) if(scDiaSemana(ms) <= 5) n++; return Math.max(1, n); })();
+  const estSub = new Map();
+  BR_SUBCATS.forEach(full => {
+    const sub = full.slice(0, 3), e = est.porSub.get(sub) || {disp: 0, trans: 0, skus: []};
+    const mediaDia = (vendaSub.get(sub) || 0) / dUteis60;
+    const dias = mediaDia > 0 ? e.disp / mediaDia : null;
+    const status = e.disp <= 0 ? (e.trans > 0 ? 'transito' : 'sem') : (dias != null && dias < 7 ? 'cautela' : 'ok');
+    estSub.set(sub, {disp: e.disp, trans: e.trans, dias, status, skus: e.skus, mediaDia});
+  });
+
+  const restantes = plDias(mesKey, 'restantes');
+  const porSetor = new Map();
+  const base = scDados().carteira;
+  setores.concat([BR_TOTAL]).forEach(st => {
+    const linhas = br.linhas(st), crl = cr.linhas(st === BR_TOTAL ? CR_SETOR_TOTAL : st);
+    const subs = BR_SUBCATS.map((full, i) => {
+      const sub = full.slice(0, 3), cl = linhas.cobertura[i], vl = linhas.vbc[i], e = estSub.get(sub);
+      const max = brPontosMax(sub), degraus = [];
+      if(cl.meta > 0){
+        const alvo60 = Math.ceil(cl.meta * 0.6 - 1e-9);
+        if(cl.pct < 0.6) degraus.push({alvo: '60%', falta: Math.max(1, alvo60 - cl.efetivo), ganho: (max*0.4 - cl.pts) * peso});
+        if(cl.pct < 1) degraus.push({alvo: '100%', falta: Math.max(1, cl.meta - cl.efetivo), ganho: (max - cl.pts) * peso});
+      }
+      const vdeg = [];
+      if(vl.meta > 0){
+        if(vl.pct < 0.6) vdeg.push({alvo: '60%', falta: Math.max(0, vl.meta*0.6 - vl.efetivo), ganho: (max*0.4 - vl.pts) * peso});
+        if(vl.pct < 1) vdeg.push({alvo: '100%', falta: Math.max(0, vl.meta - vl.efetivo), ganho: (max - vl.pts) * peso});
+      }
+      return {full, sub, cl, vl, degraus, vdeg, e, dobro: BR_DOBRO.has(sub), cat: sub.slice(0, 2), max};
+    });
+    porSetor.set(st, {st, linhas, crl, subs});
+  });
+
+  // Clientes por setor: recuperáveis, rota e cartões.
+  const clientesPorSetor = new Map();
+  setores.forEach(st => {
+    const doSetor = base.filter(c => c.setor === st);
+    const info = porSetor.get(st);
+    const arr = doSetor.map(c => {
+      const o = cli.get(st + '|' + c.sold) || {mesSub: new Set(), mesCat: new Set(), rec: new Map(), skus: new Map(), fat90: 0};
+      const visitasRest = restantes.filter(ms => scTemVisita(c, ms));
+      const recuperaveis = [];
+      o.rec.forEach((iso, sub) => { if(!o.mesSub.has(sub)) recuperaveis.push({sub, ultima: iso}); });
+      return {c, o, visitasRest, recuperaveis};
+    });
+    clientesPorSetor.set(st, arr);
+    // Alcançabilidade de cada subcategoria: recuperáveis com visita nos dias que restam e estoque (ou trânsito).
+    info.subs.forEach(s => {
+      s.recup = arr.filter(x => x.recuperaveis.some(r => r.sub === s.sub));
+      s.recupVisita = s.recup.filter(x => x.visitasRest.length > 0);
+      s.bloqueio = s.e.status === 'sem' || s.e.status === 'transito';
+      const passo = s.degraus.find(d => d.falta <= s.recupVisita.length) || null;
+      s.alcance = s.bloqueio ? null : passo;
+      s.melhorPasso = s.degraus.length ? s.degraus[0] : null;           // próximo degrau
+      s.ganhoPorCli = s.melhorPasso ? s.melhorPasso.ganho / s.melhorPasso.falta : 0;
+    });
+    info.pontosMesa = info.subs.reduce((a, s) => a + (s.alcance ? s.alcance.ganho : 0), 0);
+    info.pontos = info.linhas.total;
+  });
+  // Total da empresa: soma de pontos na mesa dos setores (exclui 555, que não disputa o ranking).
+  const tot = porSetor.get(BR_TOTAL);
+  tot.pontosMesa = setores.filter(s => s !== '555').reduce((a, s) => a + porSetor.get(s).pontosMesa, 0);
+  tot.pontos = tot.linhas.total;
+  // Ranking (555 fora), atual e possível.
+  const rank = setores.filter(s => s !== '555').map(s => ({st: s, atual: porSetor.get(s).pontos, possivel: porSetor.get(s).pontos + porSetor.get(s).pontosMesa}));
+  rank.sort((a, b) => b.atual - a.atual); rank.forEach((r, i) => { r.posAtual = i + 1; });
+  [...rank].sort((a, b) => b.possivel - a.possivel).forEach((r, i) => { r.posPossivel = i + 1; });
+
+  const dados = {mesKey, br, cr, peso, setores, porSetor, clientesPorSetor, estSub, est, rank, restantes, vendaSku, cal: br.cal};
+  _plCache = {chave, fonte: DATA.baseVendas, dados};
+  return dados;
+}
+
+// O que levar a um cliente: até 3 subcategorias com maior ganho, o SKU que ele mais compra (com estoque) e as caixas típicas.
+function plLevar(d, st, x){
+  const info = d.porSetor.get(st), itens = [];
+  info.subs.forEach(s => {
+    const rec = x.recuperaveis.find(r => r.sub === s.sub);
+    const crescerNovo = !x.o.mesCat.has(s.cat) && !!(info.crl.cobertura.find(l => l.cat.slice(0, 2) === s.cat && l.meta > 0));
+    const ganhoBr = s.melhorPasso ? s.ganhoPorCli : 0;
+    if(!rec && !crescerNovo) return;
+    if(!rec) return;                       // v1: só recuperação (cliente já comprou a subcategoria)
+    if(ganhoBr <= 0 && !crescerNovo) return;
+    const dupla = ganhoBr > 0 && crescerNovo;
+    const score = ganhoBr + (crescerNovo ? 0.5 : 0) + (dupla ? 0.25 : 0);
+    // SKU: o que o cliente mais comprou desta subcategoria; com estoque primeiro.
+    const meus = [...x.o.skus.entries()].filter(([, v]) => v.sub === s.sub).sort((a, b) => b[1].n - a[1].n);
+    let escolhido = null, aviso = '';
+    for(const [sku, v] of meus){ const e = d.est.porSku.get(sku); if(e && e.disp > 0){ escolhido = {sku, v, e}; break; } }
+    if(!escolhido){ for(const [sku, v] of meus){ const e = d.est.porSku.get(sku); if(e && e.trans > 0){ escolhido = {sku, v, e}; aviso = 'transito'; break; } } }
+    if(!escolhido){
+      const irmaos = (s.e.skus || []).map(sk => d.est.porSku.get(sk)).filter(e => e && e.disp > 0).sort((a, b) => (d.vendaSku.get(b.sku)||0) - (d.vendaSku.get(a.sku)||0));
+      if(irmaos[0]) { escolhido = {sku: irmaos[0].sku, v: {cx: []}, e: irmaos[0]}; aviso = 'troca'; }
+    }
+    if(!escolhido && s.e.status !== 'ok' && s.e.status !== 'cautela') aviso = s.e.status;
+    const cxs = escolhido ? escolhido.v.cx.slice().sort((a, b) => a - b) : [];
+    const mediana = cxs.length ? cxs[Math.floor(cxs.length / 2)] : 1;
+    itens.push({s, rec, score, dupla, crescerNovo, ganhoBr, escolhido, aviso, cx: Math.max(1, Math.round(mediana))});
+  });
+  itens.sort((a, b) => b.score - a.score);
+  return itens.slice(0, 3);
+}
+
+function plSelo(txt, cls){ return `<span class="pl-selo ${cls||''}">${esc(txt)}</span>`; }
+const plPts = v => (Math.round(v*10)/10).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 1});
+function plEstoqueTxt(e){
+  if(e.status==='transito') return `<span class="pl-est pl-est-transito">em trânsito: ${fmtInt(e.trans)} cx</span>`;
+  if(e.status==='sem') return '<span class="pl-est pl-est-sem">sem estoque</span>';
+  const dias = e.dias != null ? ` · ~${fmtInt(e.dias)} dias de venda` : '';
+  return `<span class="pl-est pl-est-${e.status}">${fmtInt(e.disp)} cx${e.trans>0 ? ' + ' + fmtInt(e.trans) + ' em trânsito' : ''}${dias}</span>`;
+}
+function plTermometro(e){
+  const tot = e.disp + e.trans; if(tot <= 0) return '';
+  return `<span class="pl-termo" title="disponível × em trânsito"><i style="width:${Math.round(100*e.disp/tot)}%"></i><b style="width:${Math.round(100*e.trans/tot)}%"></b></span>`;
+}
+function plBarra(pct, ideal, rot){
+  const p = Math.max(0, Math.min(1, pct || 0));
+  return `<div class="pl-barra" title="${esc(rot)}"><i style="width:${(p*100).toFixed(1)}%" class="${pct>=1 ? 'pl-ok' : pct>=ideal ? 'pl-mid' : 'pl-baixo'}"></i><u style="left:${(Math.min(1, ideal)*100).toFixed(1)}%"></u></div>`;
+}
+
+// Manchete automática do setor.
+function plManchete(d, st){
+  const info = d.porSetor.get(st), cal = d.cal;
+  const passos = info.subs.filter(s => s.alcance).sort((a, b) => a.alcance.falta - b.alcance.falta || b.alcance.ganho - a.alcance.ganho);
+  let g = 0, partes = [];
+  for(const s of passos.slice(0, 3)){ g += s.alcance.ganho; partes.push(`${s.alcance.falta} cliente${s.alcance.falta>1?'s':''} em ${s.sub}`); }
+  let txt = `<b>${esc(st)}</b> tem <b>${plPts(info.pontos)} pts</b> no Brasileirão.`;
+  if(partes.length) txt += ` Com ${partes.join(', ')} vai a <b>${plPts(info.pontos + g)}</b>.`;
+  const pior = info.crl.cobertura.filter(l => l.meta > 0).map(l => ({l, ideal: Math.ceil(l.meta * cal.ideal)})).sort((a, b) => (a.l.efetivo / a.l.meta) - (b.l.efetivo / b.l.meta))[0];
+  if(pior) txt += ` Gargalo do Crescer +: ${esc(CR_CAT_CURTO[pior.l.cat] || pior.l.cat)}, ${fmtInt(pior.l.efetivo)} de ${fmtInt(pior.l.meta)} (o ideal de hoje seria ${fmtInt(pior.ideal)}).`;
+  return txt;
+}
+
+function plHtmlCapa(d){
+  const ideal = d.cal.ideal;
+  let h = '<div class="pl-bloco"><h4>Placar do dia</h4>';
+  h += `<div class="pl-chips"><span>Dias úteis: <b>${d.cal.decorridos}</b> de ${d.cal.uteis} (restam ${d.cal.restantes})</span><span>Ideal do dia: <b>${fmtPct(ideal)}</b></span><span>Peso da pontuação: <b>${plPts(d.peso)}</b></span></div>`;
+  h += '<div class="table-wrap"><table class="datatable pl-tab"><thead><tr><th>Setor</th><th style="text-align:right">Pontos hoje</th><th style="text-align:right">Pontos na mesa</th><th style="text-align:right">Pode chegar a</th><th>Ranking hoje → possível</th>' +
+    CR_CATEGORIAS.map(c => `<th style="text-align:right">Cresc. ${esc(CR_CAT_CURTO[c])}</th>`).join('') + '</tr></thead><tbody>';
+  d.setores.forEach(st => {
+    const i = d.porSetor.get(st), r = d.rank.find(x => x.st === st);
+    h += `<tr class="pl-lin-setor" data-pl-setor="${esc(st)}"><td><b>${esc(st)}</b>${st==='555' ? ' <span class="pl-nota">fora do ranking</span>' : ''}</td><td style="text-align:right">${plPts(i.pontos)}</td><td style="text-align:right">+${plPts(i.pontosMesa)}</td><td style="text-align:right"><b>${plPts(i.pontos + i.pontosMesa)}</b></td>` +
+      `<td>${r ? r.posAtual + 'º → ' + r.posPossivel + 'º' : '—'}</td>` +
+      CR_CATEGORIAS.map(c => { const l = i.crl.cobertura.find(x => x.cat===c); return l && l.meta>0 ? `<td style="text-align:right"><span class="${l.efetivo/l.meta>=ideal ? 'ca-pos' : 'ca-neg'}">${fmtInt(l.efetivo)}/${fmtInt(l.meta)}</span></td>` : '<td style="text-align:right">—</td>'; }).join('') + '</tr>';
+  });
+  h += '</tbody></table></div></div>';
+
+  // Mapa de degraus
+  h += '<div class="pl-bloco"><h4>Mapa de degraus</h4><div class="pl-nota">✓ = 100% · ½ = 60% · +n = clientes que faltam para o próximo degrau e dá para alcançar com as visitas que restam · azul = só em trânsito · vermelho = sem estoque · — = sem meta ou longe</div>';
+  h += '<div class="table-wrap"><table class="datatable pl-mapa"><thead><tr><th>Setor</th>' + BR_SUBCATS.map(s => `<th class="${brCor(s)}" title="${esc(s)}">${esc(s.slice(0, 3))}</th>`).join('') + '</tr></thead><tbody>';
+  d.setores.forEach(st => {
+    const i = d.porSetor.get(st);
+    h += `<tr><td><b>${esc(st)}</b></td>` + i.subs.map(s => {
+      let txt = '—', cls = 'pl-c-nada';
+      if(s.cl.meta > 0){
+        if(s.cl.pct >= 1){ txt = '✓'; cls = 'pl-c-100'; }
+        else if(s.bloqueio){ txt = s.e.status==='transito' ? 'trânsito' : 'sem est.'; cls = s.e.status==='transito' ? 'pl-c-transito' : 'pl-c-sem'; }
+        else if(s.alcance){ txt = '+' + s.alcance.falta; cls = s.cl.pct >= 0.6 ? 'pl-c-60 pl-c-alc' : 'pl-c-alc'; }
+        else if(s.cl.pct >= 0.6){ txt = '½'; cls = 'pl-c-60'; }
+      }
+      return `<td class="${cls}" title="${esc(s.full)}: ${fmtInt(s.cl.efetivo)} de ${fmtInt(s.cl.meta)}">${txt}</td>`;
+    }).join('') + '</tr>';
+  });
+  h += '</tbody></table></div></div>';
+
+  // Atenção de estoque
+  const aten = BR_SUBCATS.map(full => full.slice(0, 3)).filter(sub => {
+    const e = d.estSub.get(sub);
+    return e.status !== 'ok' && d.setores.some(st => { const s = d.porSetor.get(st).subs.find(x => x.sub === sub); return s && s.degraus.length; });
+  });
+  h += '<div class="pl-bloco"><h4>Atenção de estoque nas metas</h4>';
+  h += aten.length ? '<ul class="pl-lista">' + aten.map(sub => { const e = d.estSub.get(sub), full = BR_SUBCATS.find(s => s.startsWith(sub));
+    return `<li>${brSubTag(full)} ${plEstoqueTxt(e)} ${plTermometro(e)}</li>`; }).join('') + '</ul>' : '<div class="pl-nota">Todas as subcategorias com meta pendente têm estoque confortável.</div>';
+  h += '</div>';
+  return h;
+}
+
+function plHtmlSetor(d, st, opt){
+  const lim = (opt && opt.limite) || 30, info = d.porSetor.get(st), f = plLerFiltros();
+  const ideal = d.cal.ideal;
+  let h = `<div class="pl-manchete">${plManchete(d, st)}</div>`;
+  // Placar duplo
+  h += '<div class="pl-duplo"><div class="pl-bloco"><h4>Crescer + — cobertura</h4>';
+  info.crl.cobertura.filter(l => l.meta > 0).forEach(l => {
+    h += `<div class="pl-linha-barra"><span>${esc(CR_CAT_CURTO[l.cat])}</span>${plBarra(l.efetivo / l.meta, ideal, 'ideal ' + fmtPct(ideal))}<span>${fmtInt(l.efetivo)}/${fmtInt(l.meta)}</span></div>`;
+  });
+  h += '</div><div class="pl-bloco"><h4>Brasileirão</h4>';
+  h += `<div class="pl-chips"><span>Cobertura: <b>${plPts(info.linhas.finalCob)}</b> pts</span><span>VBC: <b>${plPts(info.linhas.finalVbc)}</b> pts</span><span>Total: <b>${plPts(info.pontos)}</b></span><span>Na mesa: <b>+${plPts(info.pontosMesa)}</b></span></div></div></div>`;
+
+  // Escada de degraus
+  const escada = info.subs.filter(s => s.degraus.length).sort((a, b) => b.ganhoPorCli - a.ganhoPorCli || a.degraus[0].falta - b.degraus[0].falta);
+  h += '<div class="pl-bloco"><h4>Escada de degraus</h4><div class="pl-nota">Ordenada por pontos por cliente. Selos: ×2 = peso dobrado · DUPLA = a mesma venda soma no Crescer + · só Brasileirão = 06A.</div>';
+  h += '<div class="table-wrap"><table class="datatable pl-tab"><thead><tr><th>Subcategoria</th><th>Selos</th><th style="text-align:right">Cobertura</th><th style="text-align:right">Próximo degrau</th><th style="text-align:right">Ganho</th><th style="text-align:right">pts/cliente</th><th style="text-align:right">VBC falta</th><th style="text-align:right">Recuperáveis (c/ visita)</th><th>Estoque</th></tr></thead><tbody>';
+  escada.forEach(s => {
+    const p = s.degraus[0], v = s.vdeg[0];
+    const selos = (s.dobro ? plSelo('×2', 'pl-selo-dobro') : '') + (s.cat==='06' ? plSelo('só Brasileirão') : (PL_CATS_CRESCER.includes(s.cat) && s.cat!=='06' ? plSelo('DUPLA', 'pl-selo-dupla') : ''));
+    h += `<tr><td>${brSubTag(s.full)}</td><td>${selos}</td><td style="text-align:right">${fmtInt(s.cl.efetivo)}/${fmtInt(s.cl.meta)} (${fmtPct(s.cl.pct)})</td>` +
+      `<td style="text-align:right">${p.alvo}: <b>+${fmtInt(p.falta)}</b> cli</td><td style="text-align:right">+${plPts(p.ganho)} pts</td><td style="text-align:right">${plPts(s.ganhoPorCli)}</td>` +
+      `<td style="text-align:right">${v ? fmtBRL0(v.falta) + ' p/ ' + v.alvo : '—'}</td><td style="text-align:right"><span class="${s.alcance ? 'ca-pos' : ''}">${fmtInt(s.recup.length)} (${fmtInt(s.recupVisita.length)})</span></td><td>${plEstoqueTxt(s.e)} ${plTermometro(s.e)}</td></tr>`;
+  });
+  if(!escada.length) h += '<tr><td colspan="9" style="text-align:center;color:var(--text-faint)">Nenhum degrau pendente neste setor.</td></tr>';
+  h += '</tbody></table></div></div>';
+
+  // Rota do dia
+  const dias = plDias(d.mesKey, f.dia), arr = d.clientesPorSetor.get(st) || [];
+  const diasTxt = dias.length ? dias.map(ms => PL_DIA_NOMES[scDiaSemana(ms)] + ' ' + fmtDateBR(ms).slice(0, 5)).join(', ') : 'sem dias úteis restantes';
+  h += `<div class="pl-bloco"><h4>Rota — ${esc(diasTxt)}</h4><div class="pl-nota">Clientes com visita no roteiro, por prioridade (não é a ordem da rua, que a carteira não traz). "Levar" = recuperar o que o cliente já comprava, com o SKU que mais compra e as caixas típicas dele.</div>`;
+  const cartoes = [];
+  let semAcao = 0;
+  arr.forEach(x => {
+    const visitaDia = dias.filter(ms => scTemVisita(x.c, ms)); if(!visitaDia.length) return;
+    const itens = plLevar(d, st, x);
+    if(!itens.length){ semAcao++; return; }
+    cartoes.push({x, itens, visitaDia, prio: itens.reduce((a, i) => a + i.score, 0) + Math.min(0.2, x.o.fat90 / 200000)});
+  });
+  cartoes.sort((a, b) => b.prio - a.prio);
+  h += '<div class="pl-cartoes">' + cartoes.slice(0, lim).map((k, n) => {
+    const c = k.x.c;
+    return `<div class="pl-cartao"><div class="pl-cab"><span class="pl-n">${n + 1}</span><b>${esc(c.sold)}</b> ${esc(c.razao || '')}<span class="pl-sub">${esc(c.canal || '')}${c.bairro ? ' · ' + esc(c.bairro) : ''} · visita ${esc(k.visitaDia.map(ms => PL_DIA_NOMES[scDiaSemana(ms)].slice(0, 3)).join('/'))}</span></div>` +
+      k.itens.map(i => {
+        const e = i.escolhido, ult = i.rec ? fmtDateBR(parseDateOnly(i.rec.ultima)).slice(0, 5) : '';
+        const prod = e ? `${esc(String(e.e.mat || e.sku).slice(0, 44))} <span class="pl-nota">(${esc(e.sku)})</span> ≈ <b>${i.cx} cx</b>` : '<i>sem SKU com estoque</i>';
+        const selos = (i.ganhoBr > 0 ? plSelo('+' + plPts(i.ganhoBr) + ' pt', i.dupla ? 'pl-selo-dupla' : '') : '') + (i.crescerNovo ? plSelo('+1 ' + (CR_CAT_CURTO[CR_CATEGORIAS.find(c2 => c2.slice(0, 2)===i.s.cat)] || i.s.cat), 'pl-selo-dupla') : '') +
+          (i.aviso==='transito' ? plSelo('em trânsito', 'pl-selo-transito') : i.aviso==='troca' ? plSelo('trocar SKU', 'pl-selo-troca') : (i.aviso==='sem' || i.aviso==='transito') ? plSelo('sem estoque') : '');
+        return `<div class="pl-item">${brSubTag(i.s.full)} ${prod} ${selos}<div class="pl-nota">comprou ${esc(i.s.sub)} em ${ult} e não neste mês</div></div>`;
+      }).join('') + '</div>';
+  }).join('') + '</div>';
+  if(!cartoes.length) h += '<div class="pl-nota">Nenhum cliente com visita neste recorte tem recuperação pendente.</div>';
+  if(cartoes.length > lim) h += `<div class="pl-nota">Mostrando os ${lim} principais de ${cartoes.length} clientes${opt && opt.limite ? ' — lista completa no app' : ''}.</div>`;
+  if(semAcao) h += `<div class="pl-nota">Demais visitas sem ação de meta: ${fmtInt(semAcao)}.</div>`;
+  h += '</div>';
+
+  // Estoque que libera a rota
+  const comGap = info.subs.filter(s => s.degraus.length);
+  const agora = comGap.filter(s => !s.bloqueio), quando = comGap.filter(s => s.e.status==='transito'), semE = comGap.filter(s => s.e.status==='sem');
+  const trocar = [];
+  comGap.forEach(s => (s.e.skus || []).forEach(sk => { const e = d.est.porSku.get(sk); if(e && e.disp <= 0 && (d.vendaSku.get(sk) || 0) > 0) trocar.push({s, e}); }));
+  h += '<div class="pl-bloco"><h4>Estoque que libera a rota</h4><div class="pl-tres">';
+  h += '<div><h5>Vender agora</h5><ul class="pl-lista">' + (agora.map(s => `<li>${brSubTag(s.full)} ${plEstoqueTxt(s.e)}</li>`).join('') || '<li class="pl-nota">—</li>') + '</ul></div>';
+  h += '<div><h5>Vender quando chegar</h5><ul class="pl-lista">' + (quando.map(s => `<li>${brSubTag(s.full)} ${plEstoqueTxt(s.e)}<div class="pl-nota">fila: ${fmtInt(s.recupVisita.length)} cliente(s) recuperáveis com visita</div></li>`).join('') || '<li class="pl-nota">—</li>') + (semE.length ? semE.map(s => `<li>${brSubTag(s.full)} <span class="pl-est pl-est-sem">sem estoque nem trânsito</span></li>`).join('') : '') + '</ul></div>';
+  h += '<div><h5>Trocar SKU zerado</h5><ul class="pl-lista">' + (trocar.slice(0, 8).map(t => {
+    const irm = (t.s.e.skus || []).map(sk => d.est.porSku.get(sk)).filter(e => e && e.disp > 0).sort((a, b) => (d.vendaSku.get(b.sku)||0) - (d.vendaSku.get(a.sku)||0))[0];
+    return `<li>${esc(String(t.e.mat || t.e.sku).slice(0, 34))} (zerado)${irm ? ' → ' + esc(String(irm.mat || irm.sku).slice(0, 34)) : ''}</li>`; }).join('') || '<li class="pl-nota">—</li>') + '</ul></div>';
+  h += '</div></div>';
+
+  // Fora do roteiro
+  const fora = arr.filter(x => !x.visitasRest.length && plLevar(d, st, x).length).sort((a, b) => b.o.fat90 - a.o.fat90).slice(0, 12);
+  h += '<div class="pl-bloco"><h4>Fora do roteiro — ligar ou encaixar</h4>';
+  h += fora.length ? '<ul class="pl-lista">' + fora.map(x => `<li><b>${esc(x.c.sold)}</b> ${esc((x.c.razao || '').slice(0, 34))} — ${esc(plLevar(d, st, x).map(i => i.s.sub).join(', '))}</li>`).join('') + '</ul>' : '<div class="pl-nota">Todos os clientes com recuperação têm visita nos dias que restam.</div>';
+  h += '</div>';
+  return h;
+}
+
+function plHtml(opt){
+  const mesKey = plMesKey(), d = plCalcular(mesKey), f = plLerFiltros();
+  const aviso = (!d.est.temTransito ? '<div class="pl-aviso">O estoque enviado ainda não trouxe a coluna <b>Transito</b> do SAP — envie o arquivo de estoque novo para ver o que está em trânsito.</div>' : '');
+  return aviso + (f.setor ? plHtmlSetor(d, f.setor, opt) : plHtmlCapa(d));
+}
+function renderPlano(){
+  const wrap = document.getElementById('pl-conteudo');
+  if(!wrap) return;
+  const sel = document.getElementById('pl-setor');
+  if(sel.options.length <= 1){
+    sel.innerHTML = '<option value="">Empresa (resumo)</option>' + crSetores().map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  }
+  if(!(DATA.baseVendas||[]).length){ wrap.innerHTML = '<div class="mapa-empty-hint">Envie a planilha de Vendas para ver o plano de metas.</div>'; return; }
+  const d = plCalcular(plMesKey());
+  document.getElementById('pl-info').textContent = `Crescer + e Brasileirão de ${crMesAtualKey().slice(5, 7)}/${crMesAtualKey().slice(0, 4)} · ${d.cal.decorridos} de ${d.cal.uteis} dias úteis · estoque do último arquivo enviado`;
+  document.getElementById('pl-dia-wrap').style.display = plLerFiltros().setor ? '' : 'none';
+  wrap.innerHTML = plHtml();
+  wrap.querySelectorAll('[data-pl-setor]').forEach(tr => tr.addEventListener('click', () => { sel.value = tr.dataset.plSetor; renderPlano(); }));
+}
+function initPlano(){
+  if(!document.getElementById('pl-conteudo')) return;
+  ['pl-setor','pl-dia'].forEach(id => document.getElementById(id).addEventListener('change', renderPlano));
+  RENDERERS.plano = renderPlano;
+}
+
+// Impressão A4: Empresa = resumo + uma página por setor; um setor = só a página dele (até 10 clientes por dia).
+function plPrintHtml(){
+  const d = plCalcular(plMesKey()), f = plLerFiltros();
+  if(f.setor) return plHtml({limite: 10});
+  return (!d.est.temTransito ? '<div class="pl-aviso">Estoque sem a coluna Transito do SAP.</div>' : '') + plHtmlCapa(d) +
+    d.setores.map(st => '<div class="pl-pagina"><h3 class="pl-titulo-setor">Setor ' + esc(st) + '</h3>' + plHtmlSetor(d, st, {limite: 10}) + '</div>').join('');
+}
+
 function init(){
   initTabs();
   initUpload();
@@ -6555,6 +6941,7 @@ function init(){
   initCategoria();
   initAcumulado();
   initGaroto();
+  initPlano();
   Object.values(RENDERERS).forEach(fn => fn());
   initPrintButtons();
   initPrintSystem();
