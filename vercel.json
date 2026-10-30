@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "trailingSlash": false,
-  "regions": ["gru1"],
   "functions": {
     "api/sync-teste.js": { "maxDuration": 60 }
   },
